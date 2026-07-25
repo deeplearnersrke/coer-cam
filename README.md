@@ -1,4 +1,5 @@
-# School Event Geo Camera 📸📍
+# COER Event Geo Camera 📸📍
+
 
 **Tagline:** Capture • GeoTag • Document
 
