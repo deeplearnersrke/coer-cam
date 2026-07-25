@@ -1,0 +1,6 @@
+{
+  "name": "School Event Geo Camera",
+  "description": "Capture, GeoTag, Stamp, and Document school & educational events completely offline.",
+  "requestFramePermissions": ["camera", "geolocation"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
