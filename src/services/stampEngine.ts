@@ -53,6 +53,35 @@ function formatDateTime(timestamp: number): { dateStr: string; timeStr: string }
   return { dateStr, timeStr };
 }
 
+/**
+ * Wraps text into multiple lines given a max width in pixels
+ */
+function wrapText(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  maxWidth: number
+): string[] {
+  if (!text || maxWidth <= 0) return [];
+  const words = text.trim().split(/\s+/);
+  const lines: string[] = [];
+  let currentLine = words[0] || '';
+
+  for (let i = 1; i < words.length; i++) {
+    const word = words[i];
+    const width = ctx.measureText(currentLine + ' ' + word).width;
+    if (width <= maxWidth) {
+      currentLine += ' ' + word;
+    } else {
+      lines.push(currentLine);
+      currentLine = word;
+    }
+  }
+  if (currentLine) {
+    lines.push(currentLine);
+  }
+  return lines;
+}
+
 interface StampInputData {
   imageSrc: string; // Data URL or Blob URL
   event?: SchoolEvent;
@@ -66,7 +95,7 @@ interface StampInputData {
 }
 
 /**
- * Core Canvas Stamp Engine
+ * Core Canvas Stamp Engine with Dynamic Height & Non-Overlapping Text Wrapping
  */
 export async function generateStampedImage(input: StampInputData): Promise<{ blob: Blob; dataUrl: string }> {
   const {
@@ -118,6 +147,7 @@ export async function generateStampedImage(input: StampInputData): Promise<{ blo
     addr?.district,
     addr?.state,
     addr?.country,
+    addr?.postcode,
   ].filter(Boolean).join(', ');
 
   // Generate QR Code if needed
@@ -169,7 +199,7 @@ export async function generateStampedImage(input: StampInputData): Promise<{ blo
   } else if (stampStyle === 'minimal') {
     renderMinimal({
       ctx, canvas, scale, pad, fontSizeBase,
-      schoolName, eventName, locationName,
+      schoolName, eventName, locationName, addressLine,
       dateStr, timeStr, coordsStr, accStr, photoNumber
     });
   } else if (stampStyle === 'school_branding') {
@@ -219,84 +249,129 @@ function renderGpsClassic(opts: any) {
     photoNumber, logoImg, qrImg
   } = opts;
 
-  // Bottom overlay banner
-  const bannerHeight = Math.round(180 * scale);
+  const leftWidth = Math.round(canvas.width * 0.42);
+  const rightX = leftWidth + pad;
+  const qrSize = qrImg ? Math.round(90 * scale) : 0;
+  const rightWidth = canvas.width - rightX - pad - (qrImg ? qrSize + pad : 0);
+
+  // Set fonts to calculate text wrapping height
+  const schoolFont = `800 ${Math.round(fontSizeBase * 1.15)}px 'Plus Jakarta Sans', sans-serif`;
+  const eventFont = `600 ${Math.round(fontSizeBase * 0.95)}px 'Plus Jakarta Sans', sans-serif`;
+  const subFont = `${Math.round(fontSizeBase * 0.85)}px 'Plus Jakarta Sans', sans-serif`;
+
+  ctx.font = schoolFont;
+  const schoolLines = wrapText(ctx, schoolName, rightWidth);
+
+  ctx.font = eventFont;
+  const eventLines = wrapText(ctx, eventName ? `Event: ${eventName}` : '', rightWidth);
+
+  const deptOrg = [department ? `Dept: ${department}` : '', organizer ? `Org: ${organizer}` : ''].filter(Boolean).join(' | ');
+  ctx.font = subFont;
+  const deptLines = wrapText(ctx, deptOrg, rightWidth);
+
+  const fullLoc = [locationName ? `Loc: ${locationName}` : '', addressLine ? `Addr: ${addressLine}` : ''].filter(Boolean).join(' - ');
+  const locLines = wrapText(ctx, fullLoc, rightWidth);
+
+  const remarkLines = wrapText(ctx, remarks ? `Note: ${remarks}` : '', rightWidth);
+
+  // Calculate dynamic banner height
+  const lineGap = Math.round(22 * scale);
+  let rightContentH = (schoolLines.length * Math.round(26 * scale)) +
+    (eventLines.length * Math.round(22 * scale)) +
+    (deptLines.length * lineGap) +
+    (locLines.length * lineGap) +
+    (remarkLines.length * lineGap) + (pad * 2);
+
+  const leftContentH = Math.round(130 * scale);
+  const bannerHeight = Math.max(leftContentH, rightContentH, qrSize + pad * 2, Math.round(160 * scale));
   const bannerY = canvas.height - bannerHeight;
 
-  ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
+  // Background overlay
+  ctx.fillStyle = 'rgba(15, 23, 42, 0.88)';
   ctx.fillRect(0, bannerY, canvas.width, bannerHeight);
 
-  // Top accent line
+  // Top accent bar
   ctx.fillStyle = '#2563eb';
   ctx.fillRect(0, bannerY, canvas.width, Math.round(4 * scale));
 
-  // Left column (GPS Tech Data)
-  const leftX = pad;
-  let currY = bannerY + Math.round(28 * scale);
+  // Render Left Column (Telemetry)
+  let leftY = bannerY + Math.round(28 * scale);
+  ctx.fillStyle = '#38bdf8';
+  ctx.font = `bold ${Math.round(fontSizeBase * 1.05)}px 'JetBrains Mono', monospace`;
+  ctx.fillText(`📍 ${coordsStr}`, pad, leftY);
 
-  ctx.fillStyle = '#38bdf8'; // Light blue accent
-  ctx.font = `bold ${Math.round(fontSizeBase * 1.1)}px 'JetBrains Mono', monospace`;
-  ctx.fillText(`📍 ${coordsStr}`, leftX, currY);
-
-  currY += Math.round(22 * scale);
+  leftY += Math.round(22 * scale);
   ctx.fillStyle = '#cbd5e1';
   ctx.font = `${Math.round(fontSizeBase * 0.85)}px 'JetBrains Mono', monospace`;
-
   const metaParts = [accStr ? `Acc: ${accStr}` : '', altStr, headingStr].filter(Boolean);
   if (metaParts.length > 0) {
-    ctx.fillText(metaParts.join(' | '), leftX, currY);
-    currY += Math.round(22 * scale);
+    ctx.fillText(metaParts.join(' | '), pad, leftY);
+    leftY += Math.round(22 * scale);
   }
 
   ctx.fillStyle = '#f8fafc';
-  ctx.font = `bold ${Math.round(fontSizeBase * 0.95)}px 'Plus Jakarta Sans', sans-serif`;
-  ctx.fillText(`📅 ${dateStr}  ⏰ ${timeStr}`, leftX, currY);
+  ctx.font = `bold ${Math.round(fontSizeBase * 0.9)}px 'Plus Jakarta Sans', sans-serif`;
+  ctx.fillText(`📅 ${dateStr}  ⏰ ${timeStr}`, pad, leftY);
 
-  currY += Math.round(22 * scale);
-  ctx.fillStyle = '#fbbf24'; // Amber ID badge
+  leftY += Math.round(22 * scale);
+  ctx.fillStyle = '#fbbf24';
   ctx.font = `bold ${Math.round(fontSizeBase * 0.9)}px 'JetBrains Mono', monospace`;
-  ctx.fillText(`ID: ${photoNumber}`, leftX, currY);
+  ctx.fillText(`ID: ${photoNumber}`, pad, leftY);
 
-  // Right column (School & Event Context)
-  const rightX = Math.round(canvas.width * 0.45);
-  currY = bannerY + Math.round(28 * scale);
+  // Render Right Column (Text Wrapped context)
+  let rightY = bannerY + Math.round(28 * scale);
 
-  if (schoolName) {
+  if (schoolLines.length > 0) {
     ctx.fillStyle = '#ffffff';
-    ctx.font = `800 ${Math.round(fontSizeBase * 1.2)}px 'Plus Jakarta Sans', sans-serif`;
-    ctx.fillText(schoolName, rightX, currY, canvas.width - rightX - (qrImg ? 110 * scale : pad));
-    currY += Math.round(24 * scale);
+    ctx.font = schoolFont;
+    schoolLines.forEach(l => {
+      ctx.fillText(l, rightX, rightY);
+      rightY += Math.round(24 * scale);
+    });
   }
 
-  if (eventName) {
+  if (eventLines.length > 0) {
     ctx.fillStyle = '#60a5fa';
-    ctx.font = `600 ${Math.round(fontSizeBase * 1.0)}px 'Plus Jakarta Sans', sans-serif`;
-    ctx.fillText(`Event: ${eventName}`, rightX, currY, canvas.width - rightX - (qrImg ? 110 * scale : pad));
-    currY += Math.round(22 * scale);
+    ctx.font = eventFont;
+    eventLines.forEach(l => {
+      ctx.fillText(l, rightX, rightY);
+      rightY += Math.round(22 * scale);
+    });
   }
 
-  const deptOrg = [department ? `Dept: ${department}` : '', organizer ? `Org: ${organizer}` : ''].filter(Boolean).join(' | ');
-  if (deptOrg) {
+  if (deptLines.length > 0) {
     ctx.fillStyle = '#94a3b8';
-    ctx.font = `${Math.round(fontSizeBase * 0.85)}px 'Plus Jakarta Sans', sans-serif`;
-    ctx.fillText(deptOrg, rightX, currY, canvas.width - rightX - pad);
-    currY += Math.round(20 * scale);
+    ctx.font = subFont;
+    deptLines.forEach(l => {
+      ctx.fillText(l, rightX, rightY);
+      rightY += Math.round(20 * scale);
+    });
   }
 
-  if (locationName || addressLine) {
+  if (locLines.length > 0) {
     ctx.fillStyle = '#e2e8f0';
-    ctx.font = `${Math.round(fontSizeBase * 0.85)}px 'Plus Jakarta Sans', sans-serif`;
-    const locText = locationName ? `📍 ${locationName}${addressLine ? ' - ' + addressLine : ''}` : `📍 ${addressLine}`;
-    ctx.fillText(locText, rightX, currY, canvas.width - rightX - pad);
+    ctx.font = subFont;
+    locLines.forEach(l => {
+      ctx.fillText(l, rightX, rightY);
+      rightY += Math.round(20 * scale);
+    });
   }
 
-  // Draw QR code on right edge if available
+  if (remarkLines.length > 0) {
+    ctx.fillStyle = '#fb7185';
+    ctx.font = subFont;
+    remarkLines.forEach(l => {
+      ctx.fillText(l, rightX, rightY);
+      rightY += Math.round(20 * scale);
+    });
+  }
+
+  // Draw QR code on far right
   if (qrImg) {
-    const qrSize = Math.round(90 * scale);
-    ctx.drawImage(qrImg, canvas.width - qrSize - pad, bannerY + Math.round(35 * scale), qrSize, qrSize);
+    ctx.drawImage(qrImg, canvas.width - qrSize - pad, bannerY + Math.round(25 * scale), qrSize, qrSize);
   }
 
-  // Draw Logo on top left if available
+  // Draw Logo on top left corner
   if (logoImg) {
     const logoSize = Math.round(70 * scale);
     ctx.save();
@@ -316,36 +391,49 @@ function renderGovInspection(opts: any) {
   } = opts;
 
   // Header Banner
-  const headerH = Math.round(80 * scale);
-  ctx.fillStyle = 'rgba(15, 23, 42, 0.9)';
+  const headerH = Math.round(85 * scale);
+  ctx.fillStyle = 'rgba(15, 23, 42, 0.92)';
   ctx.fillRect(0, 0, canvas.width, headerH);
 
   // Gold seal line
   ctx.fillStyle = '#d97706';
   ctx.fillRect(0, headerH - Math.round(4 * scale), canvas.width, Math.round(4 * scale));
 
-  // Logo + Title
   if (logoImg) {
     const lSize = Math.round(55 * scale);
-    ctx.drawImage(logoImg, pad, Math.round(12 * scale), lSize, lSize);
+    ctx.drawImage(logoImg, pad, Math.round(15 * scale), lSize, lSize);
   }
 
   const headerTextX = logoImg ? pad + Math.round(70 * scale) : pad;
-  ctx.fillStyle = '#fef08a'; // Yellow badge
+  ctx.fillStyle = '#fef08a';
   ctx.font = `bold ${Math.round(fontSizeBase * 0.8)}px 'JetBrains Mono', monospace`;
-  ctx.fillText(`OFFICIAL INSPECTION & DOCUMENTATION RECORD`, headerTextX, Math.round(25 * scale));
+  ctx.fillText(`OFFICIAL INSPECTION & DOCUMENTATION RECORD`, headerTextX, Math.round(28 * scale));
 
   ctx.fillStyle = '#ffffff';
-  ctx.font = `bold ${Math.round(fontSizeBase * 1.2)}px 'Plus Jakarta Sans', sans-serif`;
-  ctx.fillText(schoolName || 'EDUCATIONAL INSTITUTION RECORD', headerTextX, Math.round(52 * scale));
+  ctx.font = `bold ${Math.round(fontSizeBase * 1.15)}px 'Plus Jakarta Sans', sans-serif`;
+  ctx.fillText(schoolName || 'EDUCATIONAL INSTITUTION RECORD', headerTextX, Math.round(56 * scale), canvas.width - headerTextX - pad);
 
-  // Bottom Box Panel
-  const boxW = Math.round(520 * scale);
-  const boxH = Math.round(220 * scale);
+  // Bottom Inspection Panel Box
+  const boxW = Math.min(canvas.width - pad * 2, Math.round(620 * scale));
+  const innerWidth = boxW - Math.round(32 * scale);
+
+  ctx.font = `bold ${Math.round(fontSizeBase * 0.85)}px 'Plus Jakarta Sans', sans-serif`;
+  const eventLines = wrapText(ctx, eventName ? `EVENT: ${eventName}` : '', innerWidth);
+
+  const deptInspector = [department ? `DEPT: ${department}` : '', organizer ? `INSPECTOR: ${organizer}` : ''].filter(Boolean).join(' | ');
+  ctx.font = `${Math.round(fontSizeBase * 0.8)}px 'Plus Jakarta Sans', sans-serif`;
+  const deptLines = wrapText(ctx, deptInspector, innerWidth);
+
+  const locAddress = [locationName ? `LOCATION: ${locationName}` : '', addressLine ? `ADDRESS: ${addressLine}` : ''].filter(Boolean).join(' - ');
+  ctx.font = `${Math.round(fontSizeBase * 0.8)}px 'Plus Jakarta Sans', sans-serif`;
+  const locLines = wrapText(ctx, locAddress, innerWidth);
+
+  const lineH = Math.round(20 * scale);
+  const boxH = Math.round(110 * scale) + (eventLines.length * lineH) + (deptLines.length * lineH) + (locLines.length * lineH);
   const boxX = pad;
   const boxY = canvas.height - boxH - pad;
 
-  ctx.fillStyle = 'rgba(15, 23, 42, 0.88)';
+  ctx.fillStyle = 'rgba(15, 23, 42, 0.92)';
   ctx.strokeStyle = '#d97706';
   ctx.lineWidth = Math.round(2 * scale);
 
@@ -353,47 +441,54 @@ function renderGovInspection(opts: any) {
   ctx.fill();
   ctx.stroke();
 
-  let innerY = boxY + Math.round(30 * scale);
+  let innerY = boxY + Math.round(28 * scale);
   const innerX = boxX + Math.round(16 * scale);
 
   ctx.fillStyle = '#f8fafc';
   ctx.font = `bold ${Math.round(fontSizeBase * 0.95)}px 'Plus Jakarta Sans', sans-serif`;
   ctx.fillText(`REF ID: ${photoNumber}`, innerX, innerY);
+  innerY += lineH;
 
-  if (eventName) {
-    innerY += Math.round(22 * scale);
+  if (eventLines.length > 0) {
     ctx.fillStyle = '#fbbf24';
-    ctx.font = `bold ${Math.round(fontSizeBase * 0.9)}px 'Plus Jakarta Sans', sans-serif`;
-    ctx.fillText(`EVENT: ${eventName}`, innerX, innerY);
+    ctx.font = `bold ${Math.round(fontSizeBase * 0.85)}px 'Plus Jakarta Sans', sans-serif`;
+    eventLines.forEach(l => {
+      ctx.fillText(l, innerX, innerY);
+      innerY += lineH;
+    });
   }
 
-  if (department || organizer) {
-    innerY += Math.round(20 * scale);
+  if (deptLines.length > 0) {
     ctx.fillStyle = '#cbd5e1';
     ctx.font = `${Math.round(fontSizeBase * 0.8)}px 'Plus Jakarta Sans', sans-serif`;
-    const details = [department ? `DEPT: ${department}` : '', organizer ? `INSPECTOR: ${organizer}` : ''].filter(Boolean).join(' | ');
-    ctx.fillText(details, innerX, innerY);
+    deptLines.forEach(l => {
+      ctx.fillText(l, innerX, innerY);
+      innerY += lineH;
+    });
   }
 
-  innerY += Math.round(22 * scale);
   ctx.fillStyle = '#38bdf8';
   ctx.font = `bold ${Math.round(fontSizeBase * 0.85)}px 'JetBrains Mono', monospace`;
   ctx.fillText(`LAT/LON: ${coordsStr}`, innerX, innerY);
+  innerY += lineH;
 
-  innerY += Math.round(20 * scale);
   ctx.fillStyle = '#94a3b8';
   ctx.font = `${Math.round(fontSizeBase * 0.8)}px 'JetBrains Mono', monospace`;
   const meta = [accStr ? `ACC: ${accStr}` : '', altStr, headingStr].filter(Boolean).join('  ');
-  ctx.fillText(meta, innerX, innerY);
-
-  if (locationName || addressLine) {
-    innerY += Math.round(20 * scale);
-    ctx.fillStyle = '#e2e8f0';
-    ctx.font = `${Math.round(fontSizeBase * 0.8)}px 'Plus Jakarta Sans', sans-serif`;
-    ctx.fillText(`LOC: ${locationName || addressLine}`, innerX, innerY, boxW - 30 * scale);
+  if (meta) {
+    ctx.fillText(meta, innerX, innerY);
+    innerY += lineH;
   }
 
-  innerY += Math.round(22 * scale);
+  if (locLines.length > 0) {
+    ctx.fillStyle = '#e2e8f0';
+    ctx.font = `${Math.round(fontSizeBase * 0.8)}px 'Plus Jakarta Sans', sans-serif`;
+    locLines.forEach(l => {
+      ctx.fillText(l, innerX, innerY);
+      innerY += lineH;
+    });
+  }
+
   ctx.fillStyle = '#ffffff';
   ctx.font = `bold ${Math.round(fontSizeBase * 0.85)}px 'JetBrains Mono', monospace`;
   ctx.fillText(`DATE/TIME: ${dateStr} ${timeStr}`, innerX, innerY);
@@ -403,20 +498,31 @@ function renderGovInspection(opts: any) {
 function renderModernGlass(opts: any) {
   const {
     ctx, canvas, scale, pad, fontSizeBase,
-    schoolName, eventName, locationName,
-    dateStr, timeStr, coordsStr, accStr,
-    photoNumber, logoImg
+    schoolName, eventName, locationName, addressLine,
+    dateStr, timeStr, coordsStr, accStr, photoNumber
   } = opts;
 
-  const cardW = Math.round(480 * scale);
-  const cardH = Math.round(150 * scale);
+  const cardW = Math.min(canvas.width - pad * 2, Math.round(580 * scale));
+  const innerW = cardW - Math.round(40 * scale);
+
+  ctx.font = `800 ${Math.round(fontSizeBase * 1.1)}px 'Plus Jakarta Sans', sans-serif`;
+  const schoolLines = wrapText(ctx, schoolName, innerW);
+
+  ctx.font = `600 ${Math.round(fontSizeBase * 0.9)}px 'Plus Jakarta Sans', sans-serif`;
+  const eventLines = wrapText(ctx, eventName, innerW);
+
+  ctx.font = `${Math.round(fontSizeBase * 0.8)}px 'Plus Jakarta Sans', sans-serif`;
+  const locStr = [locationName, addressLine].filter(Boolean).join(' - ');
+  const locLines = wrapText(ctx, locStr, innerW);
+
+  const lineH = Math.round(22 * scale);
+  const cardH = Math.round(90 * scale) + (schoolLines.length * lineH) + (eventLines.length * lineH) + (locLines.length * lineH);
   const cardX = pad;
   const cardY = canvas.height - cardH - pad;
 
   ctx.save();
-  // Glass card fill
-  ctx.fillStyle = 'rgba(15, 23, 42, 0.75)';
-  ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+  ctx.fillStyle = 'rgba(15, 23, 42, 0.82)';
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.25)';
   ctx.lineWidth = Math.round(1.5 * scale);
 
   drawRoundedRect(ctx, cardX, cardY, cardW, cardH, Math.round(16 * scale));
@@ -426,27 +532,38 @@ function renderModernGlass(opts: any) {
   let cY = cardY + Math.round(28 * scale);
   const cX = cardX + Math.round(20 * scale);
 
-  // Top header inside glass
-  if (schoolName) {
+  if (schoolLines.length > 0) {
     ctx.fillStyle = '#ffffff';
     ctx.font = `800 ${Math.round(fontSizeBase * 1.1)}px 'Plus Jakarta Sans', sans-serif`;
-    ctx.fillText(schoolName, cX, cY, cardW - 40 * scale);
-    cY += Math.round(24 * scale);
+    schoolLines.forEach(l => {
+      ctx.fillText(l, cX, cY);
+      cY += lineH;
+    });
   }
 
-  if (eventName || locationName) {
+  if (eventLines.length > 0) {
     ctx.fillStyle = '#60a5fa';
     ctx.font = `600 ${Math.round(fontSizeBase * 0.9)}px 'Plus Jakarta Sans', sans-serif`;
-    ctx.fillText(eventName || locationName, cX, cY, cardW - 40 * scale);
-    cY += Math.round(24 * scale);
+    eventLines.forEach(l => {
+      ctx.fillText(l, cX, cY);
+      cY += lineH;
+    });
   }
 
-  // Coordinates pill
+  if (locLines.length > 0) {
+    ctx.fillStyle = '#e2e8f0';
+    ctx.font = `${Math.round(fontSizeBase * 0.8)}px 'Plus Jakarta Sans', sans-serif`;
+    locLines.forEach(l => {
+      ctx.fillText(l, cX, cY);
+      cY += lineH;
+    });
+  }
+
   ctx.fillStyle = '#38bdf8';
   ctx.font = `bold ${Math.round(fontSizeBase * 0.85)}px 'JetBrains Mono', monospace`;
   ctx.fillText(`📍 ${coordsStr} ${accStr ? `(${accStr})` : ''}`, cX, cY);
 
-  cY += Math.round(22 * scale);
+  cY += lineH;
   ctx.fillStyle = '#94a3b8';
   ctx.font = `${Math.round(fontSizeBase * 0.8)}px 'Plus Jakarta Sans', sans-serif`;
   ctx.fillText(`🕒 ${dateStr} ${timeStr} • #${photoNumber}`, cX, cY);
@@ -458,27 +575,34 @@ function renderModernGlass(opts: any) {
 function renderMinimal(opts: any) {
   const {
     ctx, canvas, scale, pad, fontSizeBase,
-    schoolName, eventName, dateStr, timeStr, coordsStr, photoNumber
+    schoolName, eventName, locationName, addressLine,
+    dateStr, timeStr, coordsStr, photoNumber
   } = opts;
 
-  const barH = Math.round(50 * scale);
+  ctx.font = `600 ${Math.round(fontSizeBase * 0.85)}px 'Plus Jakarta Sans', sans-serif`;
+  const infoText = [schoolName, eventName, addressLine || locationName, photoNumber].filter(Boolean).join(' | ');
+  const infoLines = wrapText(ctx, infoText, canvas.width - pad * 2);
+
+  const lineH = Math.round(20 * scale);
+  const barH = Math.round(40 * scale) + (infoLines.length * lineH);
   const barY = canvas.height - barH;
 
-  ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
   ctx.fillRect(0, barY, canvas.width, barH);
 
+  let curY = barY + Math.round(24 * scale);
   ctx.fillStyle = '#ffffff';
   ctx.font = `600 ${Math.round(fontSizeBase * 0.85)}px 'Plus Jakarta Sans', sans-serif`;
-  
-  const text = [schoolName, eventName, photoNumber].filter(Boolean).join(' | ');
-  ctx.fillText(text, pad, barY + Math.round(30 * scale), canvas.width * 0.5);
+
+  infoLines.forEach(l => {
+    ctx.fillText(l, pad, curY);
+    curY += lineH;
+  });
 
   ctx.fillStyle = '#38bdf8';
   ctx.font = `bold ${Math.round(fontSizeBase * 0.85)}px 'JetBrains Mono', monospace`;
-  const rightText = `${coordsStr}  ${dateStr} ${timeStr}`;
-  ctx.textAlign = 'right';
-  ctx.fillText(rightText, canvas.width - pad, barY + Math.round(30 * scale));
-  ctx.textAlign = 'left';
+  const rightText = `📍 ${coordsStr}  ${dateStr} ${timeStr}`;
+  ctx.fillText(rightText, pad, curY);
 }
 
 // 5. STYLE: SCHOOL BRANDING
@@ -492,7 +616,7 @@ function renderSchoolBranding(opts: any) {
 
   // Header Banner
   const headerH = Math.round(90 * scale);
-  ctx.fillStyle = '#1e3a8a'; // Deep blue school header
+  ctx.fillStyle = '#1e3a8a';
   ctx.fillRect(0, 0, canvas.width, headerH);
 
   ctx.fillStyle = '#2563eb';
@@ -506,16 +630,21 @@ function renderSchoolBranding(opts: any) {
   const hX = logoImg ? pad + Math.round(75 * scale) : pad;
   ctx.fillStyle = '#ffffff';
   ctx.font = `800 ${Math.round(fontSizeBase * 1.3)}px 'Plus Jakarta Sans', sans-serif`;
-  ctx.fillText(schoolName || 'SCHOOL EVENT GEO CAMERA', hX, Math.round(42 * scale));
+  ctx.fillText(schoolName || 'SCHOOL EVENT GEO CAMERA', hX, Math.round(42 * scale), canvas.width - hX - pad);
 
   if (eventName) {
     ctx.fillStyle = '#93c5fd';
     ctx.font = `600 ${Math.round(fontSizeBase * 0.95)}px 'Plus Jakarta Sans', sans-serif`;
-    ctx.fillText(`Event: ${eventName}`, hX, Math.round(68 * scale));
+    ctx.fillText(`Event: ${eventName}`, hX, Math.round(68 * scale), canvas.width - hX - pad);
   }
 
   // Footer Banner
-  const footerH = Math.round(110 * scale);
+  ctx.font = `${Math.round(fontSizeBase * 0.85)}px 'Plus Jakarta Sans', sans-serif`;
+  const loc = [locationName, addressLine].filter(Boolean).join(' - ');
+  const locLines = wrapText(ctx, loc ? `Location: ${loc}` : '', canvas.width - pad * 2 - Math.round(120 * scale));
+
+  const lineH = Math.round(22 * scale);
+  const footerH = Math.round(80 * scale) + (locLines.length * lineH);
   const footerY = canvas.height - footerH;
 
   ctx.fillStyle = 'rgba(15, 23, 42, 0.92)';
@@ -526,15 +655,17 @@ function renderSchoolBranding(opts: any) {
   ctx.font = `bold ${Math.round(fontSizeBase * 0.95)}px 'JetBrains Mono', monospace`;
   ctx.fillText(`📍 ${coordsStr} ${accStr ? `(${accStr})` : ''}`, pad, fY);
 
-  fY += Math.round(22 * scale);
-  ctx.fillStyle = '#f8fafc';
-  ctx.font = `${Math.round(fontSizeBase * 0.85)}px 'Plus Jakarta Sans', sans-serif`;
-  const loc = [locationName, addressLine].filter(Boolean).join(' - ');
-  if (loc) {
-    ctx.fillText(`Location: ${loc}`, pad, fY, canvas.width - Math.round(150 * scale));
-    fY += Math.round(22 * scale);
+  if (locLines.length > 0) {
+    fY += lineH;
+    ctx.fillStyle = '#f8fafc';
+    ctx.font = `${Math.round(fontSizeBase * 0.85)}px 'Plus Jakarta Sans', sans-serif`;
+    locLines.forEach(l => {
+      ctx.fillText(l, pad, fY);
+      fY += lineH;
+    });
   }
 
+  fY += lineH;
   ctx.fillStyle = '#fbbf24';
   ctx.font = `bold ${Math.round(fontSizeBase * 0.85)}px 'JetBrains Mono', monospace`;
   ctx.fillText(`ID: ${photoNumber}   Date: ${dateStr} ${timeStr}`, pad, fY);

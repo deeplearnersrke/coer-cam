@@ -1,17 +1,33 @@
 import React, { useState, useEffect } from 'react';
-import { RefreshCw, Zap, ZapOff, MapPin, Compass, AlertTriangle, Images, Calendar, Layers, Shield } from 'lucide-react';
+import { RefreshCw, Zap, ZapOff, MapPin, Compass, AlertTriangle, Images, CheckCircle2 } from 'lucide-react';
 import { useCamera } from '../../hooks/useCamera';
 import { useGps } from '../../hooks/useGps';
 import { useEventContext } from '../../contexts/EventContext';
 import { generateStampedImage } from '../../services/stampEngine';
 import { getNextPhotoNumber, db } from '../../services/db';
 import { GeoPhoto, StampStyle } from '../../types';
-import { StampPreviewModal } from './StampPreviewModal';
-import { formatCoordinates, getAccuracyLevel } from '../../services/gps';
+import { formatCoordinates, getAccuracyLevel, reverseGeocode } from '../../services/gps';
 
 interface CameraViewProps {
   setActiveTab: (tab: string) => void;
   showToast: (msg: string, type?: 'success' | 'error' | 'info') => void;
+}
+
+function dataURLtoBlob(dataurl: string): Blob {
+  try {
+    const arr = dataurl.split(',');
+    const mimeMatch = arr[0].match(/:(.*?);/);
+    const mime = mimeMatch ? mimeMatch[1] : 'image/jpeg';
+    const bstr = atob(arr[1]);
+    let n = bstr.length;
+    const u8arr = new Uint8Array(n);
+    while (n--) {
+      u8arr[n] = bstr.charCodeAt(n);
+    }
+    return new Blob([u8arr], { type: mime });
+  } catch (e) {
+    return new Blob([], { type: 'image/jpeg' });
+  }
 }
 
 export const CameraView: React.FC<CameraViewProps> = ({ setActiveTab, showToast }) => {
@@ -27,25 +43,17 @@ export const CameraView: React.FC<CameraViewProps> = ({ setActiveTab, showToast 
     captureFrame,
   } = useCamera();
 
-  const { activeEvent, settings, refreshSettings } = useEventContext();
-  const { location, error: gpsError, isSearching: isGpsSearching, heading } = useGps(settings.gpsHighAccuracy);
+  const { activeEvent, settings, setActiveEvent } = useEventContext();
+  const { location, isSearching: isGpsSearching, heading } = useGps(settings.gpsHighAccuracy);
 
   const [stampStyle, setStampStyle] = useState<StampStyle>(
     activeEvent?.stampStyle || settings.defaultStampStyle || 'gps_classic'
   );
 
-  const [previewData, setPreviewData] = useState<{
-    originalDataUrl: string;
-    stampedDataUrl: string;
-    stampedBlob: Blob;
-    originalBlob: Blob;
-    photoNumber: string;
-    locationData: GeoPhoto['location'];
-  } | null>(null);
-
   const [isProcessing, setIsProcessing] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
+  const [shutterFlash, setShutterFlash] = useState(false);
   const [currentTimeStr, setCurrentTimeStr] = useState('');
+  const [lastCapturedPhotoUrl, setLastCapturedPhotoUrl] = useState<string | null>(null);
 
   // Live Clock
   useEffect(() => {
@@ -55,42 +63,73 @@ export const CameraView: React.FC<CameraViewProps> = ({ setActiveTab, showToast 
     return () => clearInterval(timer);
   }, []);
 
-  // Update default stamp style if active event changes
+  // Sync default stamp style if active event changes
   useEffect(() => {
     if (activeEvent?.stampStyle) {
       setStampStyle(activeEvent.stampStyle);
     }
   }, [activeEvent]);
 
-  // Handle Capture Action
+  // Next photo number preview
+  const nextSeq = activeEvent?.currentSeqNumber || 1;
+  const photoNumPreview = `${activeEvent?.photoPrefix || 'EVT'}-${String(nextSeq).padStart(3, '0')}`;
+  const schoolNameText = activeEvent?.schoolName || settings.schoolName || 'School / College Event';
+  const eventNameText = activeEvent?.name || '';
+  const coordsFormatted = location
+    ? formatCoordinates(location.latitude, location.longitude)
+    : 'GPS Searching...';
+
+  const liveAddressText = location?.address?.formattedAddress || [
+    location?.address?.village,
+    location?.address?.city,
+    location?.address?.district,
+    location?.address?.state,
+    location?.address?.country,
+  ].filter(Boolean).join(', ') || activeEvent?.locationName || '';
+
+  // Handle Immediate Capture & Direct Auto-Save (No Prompt Modal)
   const handleCapture = async () => {
     if (!isStreaming || isProcessing) return;
 
     setIsProcessing(true);
+    setShutterFlash(true);
+    setTimeout(() => setShutterFlash(false), 200);
 
     try {
       // 1. Capture camera frame
       const frameDataUrl = captureFrame();
       if (!frameDataUrl) {
-        throw new Error('Failed to capture frame from video camera');
+        throw new Error('Camera frame not ready. Ensure camera permission is granted.');
       }
 
-      // 2. Fallback GPS location if signal searching
-      const currentLoc: GeoPhoto['location'] = location || {
+      // 2. Prepare GPS location & ensure reverse geocoded address is fetched
+      let currentLoc: GeoPhoto['location'] = location ? { ...location } : {
         latitude: 0,
         longitude: 0,
         accuracy: 999,
         timestamp: Date.now(),
       };
 
-      // 3. Obtain next photo sequence number
-      let pNum = 'GEO-001';
-      if (activeEvent) {
-        const { photoNumber } = await getNextPhotoNumber(activeEvent);
-        pNum = photoNumber;
+      if (!currentLoc.address && currentLoc.latitude !== 0 && currentLoc.longitude !== 0) {
+        try {
+          const fetchedAddr = await reverseGeocode(currentLoc.latitude, currentLoc.longitude);
+          if (fetchedAddr) {
+            currentLoc.address = fetchedAddr;
+          }
+        } catch (e) {
+          // ignore network failure
+        }
       }
 
-      // 4. Run Canvas Stamp Engine
+      // 3. Obtain next photo sequence number & update active event in DB
+      let pNum = 'GEO-001';
+      if (activeEvent) {
+        const { photoNumber, updatedEvent } = await getNextPhotoNumber(activeEvent);
+        pNum = photoNumber;
+        setActiveEvent(updatedEvent);
+      }
+
+      // 4. Run Canvas Stamp Engine with non-overlapping dynamic formatting
       const stamped = await generateStampedImage({
         imageSrc: frameDataUrl,
         event: activeEvent || undefined,
@@ -101,31 +140,10 @@ export const CameraView: React.FC<CameraViewProps> = ({ setActiveTab, showToast 
         settings: settings,
       });
 
-      // Convert original frame dataURL to Blob
-      const originalBlob = await (await fetch(frameDataUrl)).blob();
+      // Synchronous robust blob conversion
+      const originalBlob = dataURLtoBlob(frameDataUrl);
 
-      setPreviewData({
-        originalDataUrl: frameDataUrl,
-        stampedDataUrl: stamped.dataUrl,
-        stampedBlob: stamped.blob,
-        originalBlob: originalBlob,
-        photoNumber: pNum,
-        locationData: currentLoc,
-      });
-    } catch (err: any) {
-      console.error('Capture error:', err);
-      showToast('Error capturing photo: ' + err.message, 'error');
-    } finally {
-      setIsProcessing(false);
-    }
-  };
-
-  // Handle Save Photo to IndexedDB
-  const handleSavePhoto = async (remarks: string) => {
-    if (!previewData) return;
-    setIsSaving(true);
-
-    try {
+      // 5. Directly Save Photo to IndexedDB without any prompt modal
       const newPhoto: GeoPhoto = {
         id: 'photo_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
         eventId: activeEvent?.id,
@@ -134,32 +152,33 @@ export const CameraView: React.FC<CameraViewProps> = ({ setActiveTab, showToast 
         department: activeEvent?.department,
         organizer: activeEvent?.organizer,
         locationName: activeEvent?.locationName,
-        remarks: remarks,
-        originalBlob: previewData.originalBlob,
-        stampedBlob: previewData.stampedBlob,
-        stampedDataUrl: previewData.stampedDataUrl,
-        originalDataUrl: previewData.originalDataUrl,
-        photoNumber: previewData.photoNumber,
-        location: previewData.locationData,
+        remarks: activeEvent?.remarks || '',
+        originalBlob: originalBlob,
+        stampedBlob: stamped.blob,
+        stampedDataUrl: stamped.dataUrl,
+        originalDataUrl: frameDataUrl,
+        photoNumber: pNum,
+        location: currentLoc,
         timestamp: Date.now(),
         stampStyle: stampStyle,
         metadata: {
           width: 1920,
           height: 1080,
-          fileSize: previewData.stampedBlob.size,
+          fileSize: stamped.blob.size,
           cameraFacing: facingMode,
           compassDirection: heading ? `${heading}°` : undefined,
         },
       };
 
       await db.photos.put(newPhoto);
-      showToast(`Saved photo ${previewData.photoNumber} successfully!`, 'success');
-      setPreviewData(null);
+      setLastCapturedPhotoUrl(stamped.dataUrl);
+      showToast(`Photo ${pNum} captured & saved!`, 'success');
+
     } catch (err: any) {
-      console.error('Failed to save photo:', err);
-      showToast('Failed to save photo to local database.', 'error');
+      console.error('Capture error:', err);
+      showToast('Error capturing photo: ' + (err?.message || 'Unknown camera error'), 'error');
     } finally {
-      setIsSaving(false);
+      setIsProcessing(false);
     }
   };
 
@@ -176,8 +195,13 @@ export const CameraView: React.FC<CameraViewProps> = ({ setActiveTab, showToast 
         className={`absolute inset-0 w-full h-full object-cover ${facingMode === 'user' ? 'scale-x-[-1]' : ''}`}
       />
 
+      {/* Visual Shutter Flash Effect */}
+      {shutterFlash && (
+        <div className="absolute inset-0 z-40 bg-white animate-ping opacity-80 pointer-events-none" />
+      )}
+
       {/* Top Camera Status Bar */}
-      <div className="relative z-20 p-4 bg-gradient-to-b from-black/80 via-black/40 to-transparent flex items-center justify-between text-white text-xs">
+      <div className="relative z-20 p-4 bg-gradient-to-b from-black/85 via-black/50 to-transparent flex items-center justify-between text-white text-xs">
         
         {/* GPS Badge */}
         <div className="flex items-center gap-2">
@@ -218,7 +242,7 @@ export const CameraView: React.FC<CameraViewProps> = ({ setActiveTab, showToast 
         </div>
       </div>
 
-      {/* Camera Errors or Loading Banner */}
+      {/* Camera Errors Notice */}
       {cameraError && (
         <div className="relative z-20 mx-4 my-auto p-4 rounded-2xl bg-slate-900/90 border border-red-500/50 text-center space-y-2">
           <AlertTriangle className="w-8 h-8 text-red-400 mx-auto" />
@@ -227,7 +251,7 @@ export const CameraView: React.FC<CameraViewProps> = ({ setActiveTab, showToast 
         </div>
       )}
 
-      {/* Floating Style Picker (Top Center overlay) */}
+      {/* Floating Stamp Style Selector Pills */}
       <div className="relative z-20 px-4 flex justify-center">
         <div className="flex items-center gap-1.5 p-1 rounded-full bg-slate-900/80 border border-slate-800 backdrop-blur-md overflow-x-auto max-w-full">
           {[
@@ -252,26 +276,120 @@ export const CameraView: React.FC<CameraViewProps> = ({ setActiveTab, showToast 
         </div>
       </div>
 
+      {/* ======================================================== */}
+      {/* LIVE CAMERA VIEWFINDER STAMP OVERLAY (Real-time Preview) */}
+      {/* ======================================================== */}
+      <div className="relative z-10 my-auto px-4 pointer-events-none transition-all w-full max-w-xl mx-auto">
+        {stampStyle === 'gps_classic' && (
+          <div className="w-full rounded-2xl overflow-hidden bg-slate-950/85 border-t-2 border-blue-500 p-3 shadow-2xl backdrop-blur-md text-white text-xs space-y-2">
+            <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-2.5">
+              <div className="space-y-1 shrink-0">
+                <div className="text-sky-400 font-mono font-bold text-xs flex items-center gap-1">
+                  <span>📍 {coordsFormatted}</span>
+                  {location?.accuracy && <span className="text-slate-400 text-[10px]">±{Math.round(location.accuracy)}m</span>}
+                </div>
+                <div className="text-slate-300 text-[11px] font-medium flex items-center gap-2">
+                  <span>📅 {new Date().toLocaleDateString()}</span>
+                  <span>⏰ {currentTimeStr || '00:00:00'}</span>
+                </div>
+                <div className="text-amber-400 font-mono font-bold text-[11px]">
+                  ID: {photoNumPreview}
+                </div>
+              </div>
+
+              <div className="space-y-0.5 text-left sm:text-right border-t sm:border-t-0 border-slate-800/80 pt-1.5 sm:pt-0">
+                <h4 className="font-extrabold text-xs text-white break-words">{schoolNameText}</h4>
+                {eventNameText && <p className="text-blue-300 font-bold text-[11px] break-words">Event: {eventNameText}</p>}
+                {liveAddressText && <p className="text-slate-300 text-[10px] break-words">📍 {liveAddressText}</p>}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {stampStyle === 'gov_inspection' && (
+          <div className="w-full rounded-2xl bg-slate-950/90 border-2 border-amber-500 p-3.5 shadow-2xl backdrop-blur-md text-white text-xs space-y-1.5">
+            <div className="border-b border-amber-500/40 pb-1.5">
+              <span className="text-[10px] font-mono font-bold text-amber-300 block">OFFICIAL INSPECTION RECORD</span>
+              <h4 className="font-extrabold text-xs text-white break-words">{schoolNameText}</h4>
+            </div>
+            <div className="space-y-1 font-mono text-[11px]">
+              <div className="text-amber-400 font-bold">REF ID: {photoNumPreview}</div>
+              {eventNameText && <div className="text-blue-300 break-words">EVENT: {eventNameText}</div>}
+              <div className="text-sky-300">LAT/LON: {coordsFormatted}</div>
+              {liveAddressText && <div className="text-slate-200 text-[10px] break-words">ADDR: {liveAddressText}</div>}
+              <div className="text-slate-300">DATE/TIME: {new Date().toLocaleDateString()} {currentTimeStr}</div>
+            </div>
+          </div>
+        )}
+
+        {stampStyle === 'modern_glass' && (
+          <div className="w-full rounded-2xl bg-slate-900/80 border border-white/20 p-3.5 shadow-2xl backdrop-blur-md text-white text-xs space-y-1.5">
+            <h4 className="font-extrabold text-xs text-white break-words">{schoolNameText}</h4>
+            {eventNameText && <p className="text-blue-400 font-semibold text-[11px] break-words">{eventNameText}</p>}
+            <p className="text-sky-300 font-mono text-[11px]">📍 {coordsFormatted}</p>
+            {liveAddressText && <p className="text-slate-300 text-[10px] break-words">📍 {liveAddressText}</p>}
+            <p className="text-slate-400 text-[10px]">🕒 {currentTimeStr} • #{photoNumPreview}</p>
+          </div>
+        )}
+
+        {stampStyle === 'minimal' && (
+          <div className="w-full rounded-xl bg-black/85 border border-slate-800 p-2.5 shadow-2xl backdrop-blur-md text-white text-[11px] flex flex-col sm:flex-row sm:items-center justify-between gap-1.5">
+            <div className="break-words font-medium">
+              {schoolNameText} {eventNameText ? `| ${eventNameText}` : ''} {liveAddressText ? `| ${liveAddressText}` : ''} | #{photoNumPreview}
+            </div>
+            <div className="text-sky-400 font-mono font-bold shrink-0">📍 {coordsFormatted}</div>
+          </div>
+        )}
+
+        {stampStyle === 'school_branding' && (
+          <div className="w-full rounded-2xl overflow-hidden bg-slate-950/90 border border-blue-600/50 shadow-2xl backdrop-blur-md text-white text-xs">
+            <div className="bg-blue-900/90 px-3.5 py-2 border-b border-blue-500">
+              <h4 className="font-extrabold text-xs text-white break-words">{schoolNameText}</h4>
+              {eventNameText && <p className="text-blue-200 text-[10px] break-words">Event: {eventNameText}</p>}
+            </div>
+            <div className="p-3 space-y-1 font-mono text-[11px]">
+              <p className="text-sky-400 font-bold">📍 {coordsFormatted}</p>
+              {liveAddressText && <p className="text-slate-300 text-[10px] break-words">📍 {liveAddressText}</p>}
+              <p className="text-amber-400 font-bold">ID: {photoNumPreview} • {currentTimeStr}</p>
+            </div>
+          </div>
+        )}
+      </div>
+
       {/* Bottom Controls Bar */}
       <div className="relative z-20 p-6 bg-gradient-to-t from-black/90 via-black/50 to-transparent flex items-center justify-between">
         
         {/* Gallery Quick Thumbnail / Button */}
         <button
           onClick={() => setActiveTab('gallery')}
-          className="w-12 h-12 rounded-2xl bg-slate-900/80 border border-slate-700 flex items-center justify-center text-slate-300 hover:text-white transition-all active:scale-95"
+          className="relative w-14 h-14 rounded-2xl bg-slate-900/80 border border-slate-700 overflow-hidden flex items-center justify-center text-slate-300 hover:text-white transition-all active:scale-95 shadow-lg group"
           title="Open Gallery"
         >
-          <Images className="w-6 h-6 text-blue-400" />
+          {lastCapturedPhotoUrl ? (
+            <>
+              <img src={lastCapturedPhotoUrl} alt="Recent photo" className="w-full h-full object-cover" />
+              <div className="absolute inset-0 bg-blue-600/20 group-hover:bg-transparent transition-colors" />
+              <div className="absolute top-1 right-1 bg-emerald-500 text-white rounded-full p-0.5">
+                <CheckCircle2 className="w-3 h-3" />
+              </div>
+            </>
+          ) : (
+            <Images className="w-6 h-6 text-blue-400" />
+          )}
         </button>
 
-        {/* Main Shutter Button */}
+        {/* Main Shutter Button - Click directly saves photo! */}
         <button
           onClick={handleCapture}
           disabled={!isStreaming || isProcessing}
           className="relative group w-20 h-20 rounded-full bg-white/20 border-4 border-white flex items-center justify-center shadow-2xl active:scale-90 transition-transform disabled:opacity-50"
         >
           <div className="w-16 h-16 rounded-full bg-white group-hover:scale-95 transition-transform flex items-center justify-center shadow-inner">
-            {isProcessing && <div className="w-6 h-6 border-3 border-blue-600 border-t-transparent rounded-full animate-spin" />}
+            {isProcessing ? (
+              <div className="w-6 h-6 border-3 border-blue-600 border-t-transparent rounded-full animate-spin" />
+            ) : (
+              <div className="w-12 h-12 rounded-full bg-gradient-to-tr from-blue-600 to-indigo-500 opacity-20 group-hover:opacity-40 transition-opacity" />
+            )}
           </div>
         </button>
 
@@ -299,21 +417,6 @@ export const CameraView: React.FC<CameraViewProps> = ({ setActiveTab, showToast 
         </div>
 
       </div>
-
-      {/* Stamp Preview Modal after Capture */}
-      {previewData && (
-        <StampPreviewModal
-          originalDataUrl={previewData.originalDataUrl}
-          stampedDataUrl={previewData.stampedDataUrl}
-          photoNumber={previewData.photoNumber}
-          location={previewData.locationData}
-          event={activeEvent}
-          stampStyle={stampStyle}
-          onSave={handleSavePhoto}
-          onRetake={() => setPreviewData(null)}
-          isSaving={isSaving}
-        />
-      )}
 
     </div>
   );

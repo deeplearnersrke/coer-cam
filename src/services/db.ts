@@ -11,7 +11,7 @@ export class GeoCameraDatabase extends Dexie {
     
     this.version(1).stores({
       events: 'id, name, schoolName, isDefault, createdAt',
-      photos: 'id, eventId, timestamp, photoNumber, [location.latitude+location.longitude]',
+      photos: 'id, eventId, timestamp, photoNumber',
       settings: 'id'
     });
   }
