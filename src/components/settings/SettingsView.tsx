@@ -21,6 +21,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [stampStyle, setStampStyle] = useState<StampStyle>(settings.defaultStampStyle || 'gps_classic');
   const [imageQuality, setImageQuality] = useState(settings.imageQuality || 0.9);
   const [gpsHighAccuracy, setGpsHighAccuracy] = useState(settings.gpsHighAccuracy ?? true);
+  const [showQrCode, setShowQrCode] = useState(settings.showQrCode ?? false);
 
   const handleSaveSettings = async () => {
     try {
@@ -29,6 +30,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         defaultStampStyle: stampStyle,
         imageQuality,
         gpsHighAccuracy,
+        showQrCode,
       });
       await refreshSettings();
       showToast('Settings saved successfully', 'success');
@@ -131,6 +133,19 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             type="checkbox"
             checked={gpsHighAccuracy}
             onChange={(e) => setGpsHighAccuracy(e.target.checked)}
+            className="w-5 h-5 rounded accent-blue-600 cursor-pointer"
+          />
+        </div>
+
+        <div className="flex items-center justify-between pt-2 border-t border-slate-700/60">
+          <div>
+            <h4 className="font-bold text-slate-200">Show Verification QR Code</h4>
+            <p className="text-[11px] text-slate-400">Embed metadata QR code on stamped inspection photos</p>
+          </div>
+          <input
+            type="checkbox"
+            checked={showQrCode}
+            onChange={(e) => setShowQrCode(e.target.checked)}
             className="w-5 h-5 rounded accent-blue-600 cursor-pointer"
           />
         </div>

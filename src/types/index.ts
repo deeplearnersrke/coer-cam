@@ -92,4 +92,5 @@ export interface AppSettings {
   autoSaveToGallery: boolean;
   showCompass: boolean;
   watermarkOpacity: number;
+  showQrCode?: boolean;
 }

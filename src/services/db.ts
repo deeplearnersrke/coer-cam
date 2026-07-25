@@ -27,11 +27,12 @@ export const DEFAULT_SETTINGS: AppSettings = {
   imageQuality: 0.9,
   theme: 'dark',
   exportQuality: 'high',
-  defaultFont: 'Plus Jakarta Sans',
+  defaultFont: 'Inter',
   gpsHighAccuracy: true,
   autoSaveToGallery: true,
   showCompass: true,
   watermarkOpacity: 0.9,
+  showQrCode: false,
 };
 
 // Default Sample Event

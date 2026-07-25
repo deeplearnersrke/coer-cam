@@ -1,16 +1,17 @@
 import React, { useState, useEffect } from 'react';
-import { RefreshCw, Zap, ZapOff, MapPin, Compass, AlertTriangle, Images, CheckCircle2 } from 'lucide-react';
+import { RefreshCw, Zap, ZapOff, MapPin, AlertTriangle, Images, X, Wifi, WifiOff, Battery } from 'lucide-react';
 import { useCamera } from '../../hooks/useCamera';
 import { useGps } from '../../hooks/useGps';
 import { useEventContext } from '../../contexts/EventContext';
 import { generateStampedImage } from '../../services/stampEngine';
 import { getNextPhotoNumber, db } from '../../services/db';
 import { GeoPhoto, StampStyle } from '../../types';
-import { formatCoordinates, getAccuracyLevel, reverseGeocode } from '../../services/gps';
+import { formatCoordinates, reverseGeocode } from '../../services/gps';
 
 interface CameraViewProps {
   setActiveTab: (tab: string) => void;
   showToast: (msg: string, type?: 'success' | 'error' | 'info') => void;
+  isOnline?: boolean;
 }
 
 function dataURLtoBlob(dataurl: string): Blob {
@@ -30,7 +31,7 @@ function dataURLtoBlob(dataurl: string): Blob {
   }
 }
 
-export const CameraView: React.FC<CameraViewProps> = ({ setActiveTab, showToast }) => {
+export const CameraView: React.FC<CameraViewProps> = ({ setActiveTab, showToast, isOnline = true }) => {
   const {
     videoRef,
     isStreaming,
@@ -44,40 +45,64 @@ export const CameraView: React.FC<CameraViewProps> = ({ setActiveTab, showToast 
   } = useCamera();
 
   const { activeEvent, settings, setActiveEvent } = useEventContext();
-  const { location, isSearching: isGpsSearching, heading } = useGps(settings.gpsHighAccuracy);
+  const { location, isSearching: isGpsSearching } = useGps(settings.gpsHighAccuracy);
 
-  const [stampStyle, setStampStyle] = useState<StampStyle>(
+  const [stampStyle] = useState<StampStyle>(
     activeEvent?.stampStyle || settings.defaultStampStyle || 'gps_classic'
   );
 
   const [isProcessing, setIsProcessing] = useState(false);
   const [shutterFlash, setShutterFlash] = useState(false);
   const [currentTimeStr, setCurrentTimeStr] = useState('');
+  const [currentDateStr, setCurrentDateStr] = useState('');
   const [lastCapturedPhotoUrl, setLastCapturedPhotoUrl] = useState<string | null>(null);
+  const [batteryLevel, setBatteryLevel] = useState<number | null>(null);
 
   // Live Clock
   useEffect(() => {
-    const timer = setInterval(() => {
-      setCurrentTimeStr(new Date().toLocaleTimeString());
-    }, 1000);
+    const updateDateTime = () => {
+      const d = new Date();
+      let hours = d.getHours();
+      const minutes = String(d.getMinutes()).padStart(2, '0');
+      const seconds = String(d.getSeconds()).padStart(2, '0');
+      const ampm = hours >= 12 ? 'PM' : 'AM';
+      hours = hours % 12 || 12;
+      setCurrentTimeStr(`${String(hours).padStart(2, '0')}:${minutes}:${seconds} ${ampm}`);
+
+      const day = String(d.getDate()).padStart(2, '0');
+      const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      setCurrentDateStr(`${day} ${months[d.getMonth()]} ${d.getFullYear()}`);
+    };
+
+    updateDateTime();
+    const timer = setInterval(updateDateTime, 1000);
     return () => clearInterval(timer);
   }, []);
 
-  // Sync default stamp style if active event changes
+  // Battery status API listener
   useEffect(() => {
-    if (activeEvent?.stampStyle) {
-      setStampStyle(activeEvent.stampStyle);
+    if ('getBattery' in navigator) {
+      (navigator as any).getBattery().then((battery: any) => {
+        setBatteryLevel(Math.round(battery.level * 100));
+        const handleLevel = () => setBatteryLevel(Math.round(battery.level * 100));
+        battery.addEventListener('levelchange', handleLevel);
+      }).catch(() => {});
     }
-  }, [activeEvent]);
+  }, []);
 
   // Next photo number preview
   const nextSeq = activeEvent?.currentSeqNumber || 1;
   const photoNumPreview = `${activeEvent?.photoPrefix || 'EVT'}-${String(nextSeq).padStart(3, '0')}`;
-  const schoolNameText = activeEvent?.schoolName || settings.schoolName || 'School / College Event';
+  const schoolNameText = activeEvent?.schoolName || settings.schoolName || 'INSTITUTION DOCUMENTATION';
   const eventNameText = activeEvent?.name || '';
-  const coordsFormatted = location
-    ? formatCoordinates(location.latitude, location.longitude)
-    : 'GPS Searching...';
+  const departmentText = activeEvent?.department || '';
+  const organizerText = activeEvent?.organizer || '';
+
+  const hasCoords = location && (location.latitude !== 0 || location.longitude !== 0);
+  const latFormatted = hasCoords ? `${Math.abs(location.latitude).toFixed(6)}° ${location.latitude >= 0 ? 'N' : 'S'}` : '';
+  const lonFormatted = hasCoords ? `${Math.abs(location.longitude).toFixed(6)}° ${location.longitude >= 0 ? 'E' : 'W'}` : '';
+  const accFormatted = location?.accuracy && location.accuracy < 900 ? `±${Math.round(location.accuracy)} m` : '';
+  const altFormatted = location?.altitude ? `${Math.round(location.altitude)} m` : '';
 
   const liveAddressText = location?.address?.formattedAddress || [
     location?.address?.village,
@@ -102,7 +127,7 @@ export const CameraView: React.FC<CameraViewProps> = ({ setActiveTab, showToast 
         throw new Error('Camera frame not ready. Ensure camera permission is granted.');
       }
 
-      // 2. Prepare GPS location & ensure reverse geocoded address is fetched
+      // 2. Prepare GPS location & reverse geocode if needed
       let currentLoc: GeoPhoto['location'] = location ? { ...location } : {
         latitude: 0,
         longitude: 0,
@@ -110,7 +135,7 @@ export const CameraView: React.FC<CameraViewProps> = ({ setActiveTab, showToast 
         timestamp: Date.now(),
       };
 
-      if (!currentLoc.address && currentLoc.latitude !== 0 && currentLoc.longitude !== 0) {
+      if (!currentLoc.address && currentLoc.latitude !== 0 && currentLoc.longitude !== 0 && isOnline) {
         try {
           const fetchedAddr = await reverseGeocode(currentLoc.latitude, currentLoc.longitude);
           if (fetchedAddr) {
@@ -121,15 +146,15 @@ export const CameraView: React.FC<CameraViewProps> = ({ setActiveTab, showToast 
         }
       }
 
-      // 3. Obtain next photo sequence number & update active event in DB
-      let pNum = 'GEO-001';
+      // 3. Sequence photo number
+      let pNum = 'EVT-001';
       if (activeEvent) {
         const { photoNumber, updatedEvent } = await getNextPhotoNumber(activeEvent);
         pNum = photoNumber;
         setActiveEvent(updatedEvent);
       }
 
-      // 4. Run Canvas Stamp Engine with non-overlapping dynamic formatting
+      // 4. Run Canvas Stamp Engine
       const stamped = await generateStampedImage({
         imageSrc: frameDataUrl,
         event: activeEvent || undefined,
@@ -140,10 +165,9 @@ export const CameraView: React.FC<CameraViewProps> = ({ setActiveTab, showToast 
         settings: settings,
       });
 
-      // Synchronous robust blob conversion
       const originalBlob = dataURLtoBlob(frameDataUrl);
 
-      // 5. Directly Save Photo to IndexedDB without any prompt modal
+      // 5. Directly Save Photo
       const newPhoto: GeoPhoto = {
         id: 'photo_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
         eventId: activeEvent?.id,
@@ -166,28 +190,25 @@ export const CameraView: React.FC<CameraViewProps> = ({ setActiveTab, showToast 
           height: 1080,
           fileSize: stamped.blob.size,
           cameraFacing: facingMode,
-          compassDirection: heading ? `${heading}°` : undefined,
         },
       };
 
       await db.photos.put(newPhoto);
       setLastCapturedPhotoUrl(stamped.dataUrl);
-      showToast(`Photo ${pNum} captured & saved!`, 'success');
+      showToast(`Record ${pNum} captured and saved`, 'success');
 
     } catch (err: any) {
       console.error('Capture error:', err);
-      showToast('Error capturing photo: ' + (err?.message || 'Unknown camera error'), 'error');
+      showToast('Capture error: ' + (err?.message || 'Unknown camera error'), 'error');
     } finally {
       setIsProcessing(false);
     }
   };
 
-  const accuracy = location ? getAccuracyLevel(location.accuracy) : null;
-
   return (
-    <div className="relative w-full h-[calc(100vh-4rem)] bg-black overflow-hidden flex flex-col justify-between">
+    <div className="fixed inset-0 z-50 bg-black text-white flex flex-col justify-between overflow-hidden select-none w-screen h-screen">
       
-      {/* Video Viewport */}
+      {/* Live Video Viewport */}
       <video
         ref={videoRef}
         playsInline
@@ -200,206 +221,203 @@ export const CameraView: React.FC<CameraViewProps> = ({ setActiveTab, showToast 
         <div className="absolute inset-0 z-40 bg-white animate-ping opacity-80 pointer-events-none" />
       )}
 
-      {/* Top Camera Status Bar */}
-      <div className="relative z-20 p-4 bg-gradient-to-b from-black/85 via-black/50 to-transparent flex items-center justify-between text-white text-xs">
+      {/* Top Status & Exit Header */}
+      <div className="relative z-20 p-3 sm:p-4 bg-gradient-to-b from-black/90 via-black/60 to-transparent flex items-center justify-between text-white text-xs">
         
-        {/* GPS Badge */}
-        <div className="flex items-center gap-2">
-          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-900/80 border border-slate-700/80 backdrop-blur-md">
-            <MapPin className="w-3.5 h-3.5 text-emerald-400 animate-pulse" />
-            {isGpsSearching ? (
-              <span className="text-amber-300 font-semibold">GPS Searching...</span>
-            ) : location ? (
-              <span className="font-mono font-bold text-slate-100">
-                {location.latitude.toFixed(4)}°, {location.longitude.toFixed(4)}°
-              </span>
-            ) : (
-              <span className="text-amber-400">GPS Unavailable</span>
-            )}
-          </div>
+        {/* Exit Camera Button */}
+        <button
+          onClick={() => setActiveTab('dashboard')}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-black/60 border border-white/20 hover:bg-white/20 text-white font-medium backdrop-blur-md transition-all active:scale-95"
+          title="Exit Camera Mode"
+        >
+          <X className="w-4 h-4" />
+          <span className="hidden sm:inline">Close Camera</span>
+        </button>
 
-          {accuracy && (
-            <span
-              className="hidden sm:inline px-2 py-0.5 rounded-full text-[10px] font-bold border"
-              style={{ color: accuracy.color, borderColor: `${accuracy.color}40`, backgroundColor: `${accuracy.color}20` }}
-            >
-              {accuracy.label}
-            </span>
+        {/* GPS Status Indicator */}
+        <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-black/60 border border-white/20 backdrop-blur-md text-[11px] font-mono">
+          <MapPin className={`w-3.5 h-3.5 ${isGpsSearching ? 'text-amber-400 animate-pulse' : hasCoords ? 'text-emerald-400' : 'text-slate-400'}`} />
+          {isGpsSearching ? (
+            <span>GPS Searching...</span>
+          ) : hasCoords ? (
+            <span>GPS Connected {accFormatted && `(${accFormatted})`}</span>
+          ) : (
+            <span>GPS Offline</span>
           )}
         </div>
 
-        {/* Heading & Live Clock */}
-        <div className="flex items-center gap-3 font-mono font-bold">
-          {heading !== null && (
-            <div className="flex items-center gap-1 bg-slate-900/80 px-2 py-1 rounded-lg border border-slate-700/80">
-              <Compass className="w-3.5 h-3.5 text-sky-400" />
-              <span>{heading}°</span>
+        {/* Status Indicators: Network, Battery, Clock */}
+        <div className="flex items-center gap-2 font-mono text-[11px]">
+          <div className="hidden sm:flex items-center gap-1 px-2 py-1 rounded-md bg-black/60 border border-white/20">
+            {isOnline ? (
+              <>
+                <Wifi className="w-3.5 h-3.5 text-emerald-400" />
+                <span>Online</span>
+              </>
+            ) : (
+              <>
+                <WifiOff className="w-3.5 h-3.5 text-amber-400" />
+                <span>Offline</span>
+              </>
+            )}
+          </div>
+
+          {batteryLevel !== null && (
+            <div className="hidden md:flex items-center gap-1 px-2 py-1 rounded-md bg-black/60 border border-white/20">
+              <Battery className="w-3.5 h-3.5 text-slate-300" />
+              <span>{batteryLevel}%</span>
             </div>
           )}
-          <span className="bg-slate-900/80 px-2.5 py-1 rounded-lg border border-slate-700/80 text-amber-300">
-            {currentTimeStr || '00:00:00'}
-          </span>
+
+          <div className="px-2.5 py-1 rounded-md bg-black/60 border border-white/20 font-medium">
+            {currentTimeStr}
+          </div>
         </div>
       </div>
 
       {/* Camera Errors Notice */}
       {cameraError && (
-        <div className="relative z-20 mx-4 my-auto p-4 rounded-2xl bg-slate-900/90 border border-red-500/50 text-center space-y-2">
-          <AlertTriangle className="w-8 h-8 text-red-400 mx-auto" />
-          <p className="text-sm font-bold text-white">Camera Access Notice</p>
+        <div className="relative z-20 mx-4 my-auto p-4 rounded-xl bg-black/85 border border-red-500/50 text-center space-y-1 max-w-md mx-auto">
+          <AlertTriangle className="w-6 h-6 text-red-400 mx-auto" />
+          <p className="text-sm font-semibold text-white">Camera Access Notice</p>
           <p className="text-xs text-slate-300">{cameraError}</p>
         </div>
       )}
 
-      {/* Floating Stamp Style Selector Pills */}
-      <div className="relative z-20 px-4 flex justify-center">
-        <div className="flex items-center gap-1.5 p-1 rounded-full bg-slate-900/80 border border-slate-800 backdrop-blur-md overflow-x-auto max-w-full">
-          {[
-            { id: 'gps_classic', label: 'Classic' },
-            { id: 'gov_inspection', label: 'Gov Record' },
-            { id: 'modern_glass', label: 'Modern' },
-            { id: 'minimal', label: 'Minimal' },
-            { id: 'school_branding', label: 'Branded' },
-          ].map((st) => (
-            <button
-              key={st.id}
-              onClick={() => setStampStyle(st.id as StampStyle)}
-              className={`px-3 py-1 rounded-full text-[11px] font-bold transition-all whitespace-nowrap ${
-                stampStyle === st.id
-                  ? 'bg-blue-600 text-white shadow-md'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              {st.label}
-            </button>
-          ))}
+      {/* ======================================================== */}
+      {/* LIVE STAMP OVERLAY (Official Monochrome Document Format)   */}
+      {/* ======================================================== */}
+      <div className="relative z-10 my-auto px-4 pointer-events-none transition-all w-full max-w-xl mx-auto">
+        <div className="w-full rounded-xl bg-black/75 border border-white/20 p-5 shadow-2xl backdrop-blur-md text-white font-sans text-xs space-y-3 text-left">
+          
+          {/* Header Title & Subtitle */}
+          <div className="space-y-0.5">
+            <h3 className="font-semibold text-sm text-white tracking-wide">{schoolNameText}</h3>
+            {eventNameText && <p className="font-medium text-xs text-slate-200">{eventNameText}</p>}
+          </div>
+
+          {/* Divider Line */}
+          <div className="h-px bg-white/20 w-full" />
+
+          {/* Key-Value Inspection Grid (Left Aligned, No Emojis, Auto Hides Empty) */}
+          <div className="space-y-1 font-mono text-[11px] leading-relaxed">
+            {departmentText && (
+              <div className="grid grid-cols-[100px_10px_1fr] items-start">
+                <span className="font-medium text-slate-300">Department</span>
+                <span>:</span>
+                <span className="text-white font-normal">{departmentText}</span>
+              </div>
+            )}
+
+            {organizerText && (
+              <div className="grid grid-cols-[100px_10px_1fr] items-start">
+                <span className="font-medium text-slate-300">Organizer</span>
+                <span>:</span>
+                <span className="text-white font-normal">{organizerText}</span>
+              </div>
+            )}
+
+            {liveAddressText && (
+              <div className="grid grid-cols-[100px_10px_1fr] items-start">
+                <span className="font-medium text-slate-300">Location</span>
+                <span>:</span>
+                <span className="text-white font-normal break-words">{liveAddressText}</span>
+              </div>
+            )}
+
+            {latFormatted && (
+              <div className="grid grid-cols-[100px_10px_1fr] items-start">
+                <span className="font-medium text-slate-300">Latitude</span>
+                <span>:</span>
+                <span className="text-white font-normal">{latFormatted}</span>
+              </div>
+            )}
+
+            {lonFormatted && (
+              <div className="grid grid-cols-[100px_10px_1fr] items-start">
+                <span className="font-medium text-slate-300">Longitude</span>
+                <span>:</span>
+                <span className="text-white font-normal">{lonFormatted}</span>
+              </div>
+            )}
+
+            {accFormatted && (
+              <div className="grid grid-cols-[100px_10px_1fr] items-start">
+                <span className="font-medium text-slate-300">Accuracy</span>
+                <span>:</span>
+                <span className="text-white font-normal">{accFormatted}</span>
+              </div>
+            )}
+
+            {altFormatted && (
+              <div className="grid grid-cols-[100px_10px_1fr] items-start">
+                <span className="font-medium text-slate-300">Altitude</span>
+                <span>:</span>
+                <span className="text-white font-normal">{altFormatted}</span>
+              </div>
+            )}
+
+            <div className="grid grid-cols-[100px_10px_1fr] items-start">
+              <span className="font-medium text-slate-300">Date</span>
+              <span>:</span>
+              <span className="text-white font-normal">{currentDateStr}</span>
+            </div>
+
+            <div className="grid grid-cols-[100px_10px_1fr] items-start">
+              <span className="font-medium text-slate-300">Time</span>
+              <span>:</span>
+              <span className="text-white font-normal">{currentTimeStr}</span>
+            </div>
+
+            <div className="grid grid-cols-[100px_10px_1fr] items-start">
+              <span className="font-medium text-slate-300">Photo ID</span>
+              <span>:</span>
+              <span className="text-white font-semibold">{photoNumPreview}</span>
+            </div>
+          </div>
+
         </div>
       </div>
 
-      {/* ======================================================== */}
-      {/* LIVE CAMERA VIEWFINDER STAMP OVERLAY (Real-time Preview) */}
-      {/* ======================================================== */}
-      <div className="relative z-10 my-auto px-4 pointer-events-none transition-all w-full max-w-xl mx-auto">
-        {stampStyle === 'gps_classic' && (
-          <div className="w-full rounded-2xl overflow-hidden bg-slate-950/85 border-t-2 border-blue-500 p-3 shadow-2xl backdrop-blur-md text-white text-xs space-y-2">
-            <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-2.5">
-              <div className="space-y-1 shrink-0">
-                <div className="text-sky-400 font-mono font-bold text-xs flex items-center gap-1">
-                  <span>📍 {coordsFormatted}</span>
-                  {location?.accuracy && <span className="text-slate-400 text-[10px]">±{Math.round(location.accuracy)}m</span>}
-                </div>
-                <div className="text-slate-300 text-[11px] font-medium flex items-center gap-2">
-                  <span>📅 {new Date().toLocaleDateString()}</span>
-                  <span>⏰ {currentTimeStr || '00:00:00'}</span>
-                </div>
-                <div className="text-amber-400 font-mono font-bold text-[11px]">
-                  ID: {photoNumPreview}
-                </div>
-              </div>
-
-              <div className="space-y-0.5 text-left sm:text-right border-t sm:border-t-0 border-slate-800/80 pt-1.5 sm:pt-0">
-                <h4 className="font-extrabold text-xs text-white break-words">{schoolNameText}</h4>
-                {eventNameText && <p className="text-blue-300 font-bold text-[11px] break-words">Event: {eventNameText}</p>}
-                {liveAddressText && <p className="text-slate-300 text-[10px] break-words">📍 {liveAddressText}</p>}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {stampStyle === 'gov_inspection' && (
-          <div className="w-full rounded-2xl bg-slate-950/90 border-2 border-amber-500 p-3.5 shadow-2xl backdrop-blur-md text-white text-xs space-y-1.5">
-            <div className="border-b border-amber-500/40 pb-1.5">
-              <span className="text-[10px] font-mono font-bold text-amber-300 block">OFFICIAL INSPECTION RECORD</span>
-              <h4 className="font-extrabold text-xs text-white break-words">{schoolNameText}</h4>
-            </div>
-            <div className="space-y-1 font-mono text-[11px]">
-              <div className="text-amber-400 font-bold">REF ID: {photoNumPreview}</div>
-              {eventNameText && <div className="text-blue-300 break-words">EVENT: {eventNameText}</div>}
-              <div className="text-sky-300">LAT/LON: {coordsFormatted}</div>
-              {liveAddressText && <div className="text-slate-200 text-[10px] break-words">ADDR: {liveAddressText}</div>}
-              <div className="text-slate-300">DATE/TIME: {new Date().toLocaleDateString()} {currentTimeStr}</div>
-            </div>
-          </div>
-        )}
-
-        {stampStyle === 'modern_glass' && (
-          <div className="w-full rounded-2xl bg-slate-900/80 border border-white/20 p-3.5 shadow-2xl backdrop-blur-md text-white text-xs space-y-1.5">
-            <h4 className="font-extrabold text-xs text-white break-words">{schoolNameText}</h4>
-            {eventNameText && <p className="text-blue-400 font-semibold text-[11px] break-words">{eventNameText}</p>}
-            <p className="text-sky-300 font-mono text-[11px]">📍 {coordsFormatted}</p>
-            {liveAddressText && <p className="text-slate-300 text-[10px] break-words">📍 {liveAddressText}</p>}
-            <p className="text-slate-400 text-[10px]">🕒 {currentTimeStr} • #{photoNumPreview}</p>
-          </div>
-        )}
-
-        {stampStyle === 'minimal' && (
-          <div className="w-full rounded-xl bg-black/85 border border-slate-800 p-2.5 shadow-2xl backdrop-blur-md text-white text-[11px] flex flex-col sm:flex-row sm:items-center justify-between gap-1.5">
-            <div className="break-words font-medium">
-              {schoolNameText} {eventNameText ? `| ${eventNameText}` : ''} {liveAddressText ? `| ${liveAddressText}` : ''} | #{photoNumPreview}
-            </div>
-            <div className="text-sky-400 font-mono font-bold shrink-0">📍 {coordsFormatted}</div>
-          </div>
-        )}
-
-        {stampStyle === 'school_branding' && (
-          <div className="w-full rounded-2xl overflow-hidden bg-slate-950/90 border border-blue-600/50 shadow-2xl backdrop-blur-md text-white text-xs">
-            <div className="bg-blue-900/90 px-3.5 py-2 border-b border-blue-500">
-              <h4 className="font-extrabold text-xs text-white break-words">{schoolNameText}</h4>
-              {eventNameText && <p className="text-blue-200 text-[10px] break-words">Event: {eventNameText}</p>}
-            </div>
-            <div className="p-3 space-y-1 font-mono text-[11px]">
-              <p className="text-sky-400 font-bold">📍 {coordsFormatted}</p>
-              {liveAddressText && <p className="text-slate-300 text-[10px] break-words">📍 {liveAddressText}</p>}
-              <p className="text-amber-400 font-bold">ID: {photoNumPreview} • {currentTimeStr}</p>
-            </div>
-          </div>
-        )}
-      </div>
-
       {/* Bottom Controls Bar */}
-      <div className="relative z-20 p-6 bg-gradient-to-t from-black/90 via-black/50 to-transparent flex items-center justify-between">
+      <div className="relative z-20 p-6 bg-gradient-to-t from-black/90 via-black/60 to-transparent flex items-center justify-between">
         
-        {/* Gallery Quick Thumbnail / Button */}
+        {/* Gallery Quick Shortcut */}
         <button
           onClick={() => setActiveTab('gallery')}
-          className="relative w-14 h-14 rounded-2xl bg-slate-900/80 border border-slate-700 overflow-hidden flex items-center justify-center text-slate-300 hover:text-white transition-all active:scale-95 shadow-lg group"
-          title="Open Gallery"
+          className="relative w-14 h-14 rounded-xl bg-black/60 border border-white/20 overflow-hidden flex items-center justify-center text-slate-300 hover:text-white transition-all active:scale-95 shadow-lg group"
+          title="Open Inspection Gallery"
         >
           {lastCapturedPhotoUrl ? (
-            <>
-              <img src={lastCapturedPhotoUrl} alt="Recent photo" className="w-full h-full object-cover" />
-              <div className="absolute inset-0 bg-blue-600/20 group-hover:bg-transparent transition-colors" />
-              <div className="absolute top-1 right-1 bg-emerald-500 text-white rounded-full p-0.5">
-                <CheckCircle2 className="w-3 h-3" />
-              </div>
-            </>
+            <img src={lastCapturedPhotoUrl} alt="Recent inspection" className="w-full h-full object-cover" />
           ) : (
-            <Images className="w-6 h-6 text-blue-400" />
+            <Images className="w-6 h-6 text-slate-300" />
           )}
         </button>
 
-        {/* Main Shutter Button - Click directly saves photo! */}
+        {/* Main Capture Button */}
         <button
           onClick={handleCapture}
           disabled={!isStreaming || isProcessing}
           className="relative group w-20 h-20 rounded-full bg-white/20 border-4 border-white flex items-center justify-center shadow-2xl active:scale-90 transition-transform disabled:opacity-50"
+          title="Capture Official Photo"
         >
           <div className="w-16 h-16 rounded-full bg-white group-hover:scale-95 transition-transform flex items-center justify-center shadow-inner">
             {isProcessing ? (
-              <div className="w-6 h-6 border-3 border-blue-600 border-t-transparent rounded-full animate-spin" />
+              <div className="w-6 h-6 border-3 border-slate-900 border-t-transparent rounded-full animate-spin" />
             ) : (
-              <div className="w-12 h-12 rounded-full bg-gradient-to-tr from-blue-600 to-indigo-500 opacity-20 group-hover:opacity-40 transition-opacity" />
+              <div className="w-12 h-12 rounded-full bg-slate-300 opacity-30 group-hover:opacity-60 transition-opacity" />
             )}
           </div>
         </button>
 
-        {/* Camera Controls (Switch camera / Torch) */}
+        {/* Camera Controls (Switch Camera & Flash) */}
         <div className="flex items-center gap-2">
           {hasTorch && (
             <button
               onClick={toggleTorch}
-              className={`w-12 h-12 rounded-2xl border flex items-center justify-center transition-all ${
-                torchOn ? 'bg-amber-500 text-slate-950 border-amber-400' : 'bg-slate-900/80 text-slate-300 border-slate-700'
+              className={`w-12 h-12 rounded-xl border flex items-center justify-center transition-all ${
+                torchOn ? 'bg-white text-black border-white' : 'bg-black/60 text-white border-white/20'
               }`}
               title="Toggle Flash/Torch"
             >
@@ -409,7 +427,7 @@ export const CameraView: React.FC<CameraViewProps> = ({ setActiveTab, showToast 
 
           <button
             onClick={toggleCamera}
-            className="w-12 h-12 rounded-2xl bg-slate-900/80 border border-slate-700 flex items-center justify-center text-slate-300 hover:text-white transition-all active:scale-95"
+            className="w-12 h-12 rounded-xl bg-black/60 border border-white/20 flex items-center justify-center text-white hover:bg-white/20 transition-all active:scale-95"
             title="Switch Front/Rear Camera"
           >
             <RefreshCw className="w-5 h-5" />

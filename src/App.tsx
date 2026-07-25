@@ -84,61 +84,67 @@ function MainAppContent() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-900 text-slate-100 flex flex-col font-sans selection:bg-blue-600 selection:text-white">
+    <div className="min-h-screen bg-slate-900 text-slate-100 flex flex-col font-sans selection:bg-slate-700 selection:text-white">
       {showSplash && <SplashScreen onFinish={() => setShowSplash(false)} />}
 
       <Toast toasts={toasts} onDismiss={handleDismissToast} />
 
-      <Navbar
-        activeTab={activeTab}
-        setActiveTab={setActiveTab}
-        isOnline={isOnline}
-        deferredPrompt={deferredPrompt}
-        handleInstallPwa={handleInstallPwa}
-      />
-
-      <main className="flex-1 w-full overflow-y-auto">
-        {activeTab === 'dashboard' && (
-          <DashboardView
+      {activeTab === 'camera' ? (
+        <CameraView
+          setActiveTab={setActiveTab}
+          showToast={showToast}
+          isOnline={isOnline}
+        />
+      ) : (
+        <>
+          <Navbar
+            activeTab={activeTab}
             setActiveTab={setActiveTab}
-            onOpenPhotoDetail={(photo) => setSelectedPhoto(photo)}
-            onOpenCreateEventModal={() => setIsCreateEventModalOpen(true)}
-          />
-        )}
-
-        {activeTab === 'camera' && (
-          <CameraView setActiveTab={setActiveTab} showToast={showToast} />
-        )}
-
-        {activeTab === 'gallery' && (
-          <GalleryView
-            onOpenPhotoDetail={(photo) => setSelectedPhoto(photo)}
-            showToast={showToast}
-          />
-        )}
-
-        {activeTab === 'map' && (
-          <MapView onOpenPhotoDetail={(photo) => setSelectedPhoto(photo)} />
-        )}
-
-        {activeTab === 'events' && (
-          <EventsView showToast={showToast} />
-        )}
-
-        {activeTab === 'reports' && (
-          <ReportsView showToast={showToast} />
-        )}
-
-        {activeTab === 'settings' && (
-          <SettingsView
-            showToast={showToast}
+            isOnline={isOnline}
             deferredPrompt={deferredPrompt}
             handleInstallPwa={handleInstallPwa}
           />
-        )}
-      </main>
 
-      <BottomNav activeTab={activeTab} setActiveTab={setActiveTab} />
+          <main className="flex-1 w-full overflow-y-auto">
+            {activeTab === 'dashboard' && (
+              <DashboardView
+                setActiveTab={setActiveTab}
+                onOpenPhotoDetail={(photo) => setSelectedPhoto(photo)}
+                onOpenCreateEventModal={() => setIsCreateEventModalOpen(true)}
+              />
+            )}
+
+            {activeTab === 'gallery' && (
+              <GalleryView
+                onOpenPhotoDetail={(photo) => setSelectedPhoto(photo)}
+                showToast={showToast}
+              />
+            )}
+
+            {activeTab === 'map' && (
+              <MapView onOpenPhotoDetail={(photo) => setSelectedPhoto(photo)} />
+            )}
+
+            {activeTab === 'events' && (
+              <EventsView showToast={showToast} />
+            )}
+
+            {activeTab === 'reports' && (
+              <ReportsView showToast={showToast} />
+            )}
+
+            {activeTab === 'settings' && (
+              <SettingsView
+                showToast={showToast}
+                deferredPrompt={deferredPrompt}
+                handleInstallPwa={handleInstallPwa}
+              />
+            )}
+          </main>
+
+          <BottomNav activeTab={activeTab} setActiveTab={setActiveTab} />
+        </>
+      )}
 
       {/* Photo Detail Inspection Modal */}
       {selectedPhoto && (
