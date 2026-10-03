@@ -10,14 +10,12 @@ export function useCamera() {
   const [torchOn, setTorchOn] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Play shutter feedback sound using Web Audio API (100% offline, pure synthesized)
   const playShutterSound = useCallback(() => {
     try {
       const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
       if (!AudioContextClass) return;
-      const ctx = new AudioContextClass();
 
-      // Click sound
+      const ctx = new AudioContextClass();
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
 
@@ -33,8 +31,8 @@ export function useCamera() {
 
       osc.start(ctx.currentTime);
       osc.stop(ctx.currentTime + 0.08);
-    } catch (e) {
-      // Audio playback quiet fallback
+    } catch {
+      // Audio feedback is optional.
     }
   }, []);
 
@@ -43,49 +41,52 @@ export function useCamera() {
       streamRef.current.getTracks().forEach(track => track.stop());
       streamRef.current = null;
     }
+
     setIsStreaming(false);
     setHasTorch(false);
     setTorchOn(false);
   }, []);
 
-  const startStream = useCallback(async (mode: 'user' | 'environment' = facingMode) => {
-    stopStream();
-    setError(null);
+  const startStream = useCallback(
+    async (mode: 'user' | 'environment' = facingMode) => {
+      stopStream();
+      setError(null);
 
-    try {
-      const constraints: MediaStreamConstraints = {
-        audio: false,
-        video: {
-          facingMode: { ideal: mode },
-          width: { ideal: 1920 },
-          height: { ideal: 1080 },
-        },
-      };
+      try {
+        const constraints: MediaStreamConstraints = {
+          audio: false,
+          video: {
+            facingMode: { ideal: mode },
+            width: { ideal: 1920 },
+            height: { ideal: 1080 },
+          },
+        };
 
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
-      streamRef.current = stream;
+        const stream = await navigator.mediaDevices.getUserMedia(constraints);
+        streamRef.current = stream;
 
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        await videoRef.current.play();
-      }
-
-      setIsStreaming(true);
-
-      // Check torch capabilities
-      const track = stream.getVideoTracks()[0];
-      if (track && 'getCapabilities' in track) {
-        const capabilities = (track as any).getCapabilities();
-        if (capabilities && capabilities.torch) {
-          setHasTorch(true);
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          await videoRef.current.play();
         }
+
+        setIsStreaming(true);
+
+        const track = stream.getVideoTracks()[0];
+        if (track && 'getCapabilities' in track) {
+          const capabilities = (track as any).getCapabilities();
+          if (capabilities?.torch) {
+            setHasTorch(true);
+          }
+        }
+      } catch (err: any) {
+        console.error('Camera stream error:', err);
+        setError(err?.message || 'Unable to access camera. Please check permissions.');
+        setIsStreaming(false);
       }
-    } catch (err: any) {
-      console.error('Camera stream error:', err);
-      setError(err.message || 'Unable to access camera. Please check permissions.');
-      setIsStreaming(false);
-    }
-  }, [facingMode, stopStream]);
+    },
+    [facingMode, stopStream]
+  );
 
   const toggleCamera = useCallback(() => {
     const nextMode = facingMode === 'environment' ? 'user' : 'environment';
@@ -95,42 +96,149 @@ export function useCamera() {
 
   const toggleTorch = useCallback(async () => {
     if (!streamRef.current || !hasTorch) return;
+
     const track = streamRef.current.getVideoTracks()[0];
-    if (track) {
-      try {
-        const nextState = !torchOn;
-        await (track as any).applyConstraints({
-          advanced: [{ torch: nextState }]
-        });
-        setTorchOn(nextState);
-      } catch (e) {
-        console.error('Failed to toggle torch:', e);
-      }
+    if (!track) return;
+
+    try {
+      const nextState = !torchOn;
+      await (track as any).applyConstraints({
+        advanced: [{ torch: nextState }],
+      });
+      setTorchOn(nextState);
+    } catch (e) {
+      console.error('Failed to toggle torch:', e);
     }
   }, [hasTorch, torchOn]);
 
+  /**
+   * Read orientation at the exact moment Capture is pressed.
+   * This deliberately does not use React orientation state.
+   */
+  const getCurrentOrientation = useCallback(() => {
+    if (typeof window === 'undefined') {
+      return { angle: 0, landscape: false };
+    }
+
+    let angle = 0;
+
+    if (screen.orientation && typeof screen.orientation.angle === 'number') {
+      angle = screen.orientation.angle;
+    }
+
+    // iOS/Safari fallback.
+    if (angle === 0 && typeof (window as any).orientation === 'number') {
+      angle = (window as any).orientation;
+    }
+
+    angle = ((angle % 360) + 360) % 360;
+
+    const viewportLandscape = window.innerWidth > window.innerHeight;
+
+    return {
+      angle,
+      landscape:
+        angle === 90 || angle === 270
+          ? true
+          : angle === 0 || angle === 180
+            ? false
+            : viewportLandscape,
+    };
+  }, []);
+
+  /**
+   * Capture and normalize the actual camera pixels.
+   * The stamp engine receives an image whose width/height match
+   * the current physical device orientation.
+   */
   const captureFrame = useCallback((): string | null => {
-    if (!videoRef.current || !isStreaming) return null;
+    const video = videoRef.current;
+
+    if (!video || !isStreaming) return null;
+
+    if (!video.videoWidth || !video.videoHeight) {
+      console.warn('Camera frame is not ready:', video.videoWidth, video.videoHeight);
+      return null;
+    }
 
     playShutterSound();
 
-    const video = videoRef.current;
+    const sourceWidth = video.videoWidth;
+    const sourceHeight = video.videoHeight;
+    const { angle, landscape: targetLandscape } = getCurrentOrientation();
+    const sourceLandscape = sourceWidth > sourceHeight;
+
+    console.log('[CAMERA CAPTURE]', {
+      angle,
+      targetLandscape,
+      sourceWidth,
+      sourceHeight,
+      sourceLandscape,
+      facingMode,
+    });
+
+    const needsRotation = sourceLandscape !== targetLandscape;
+
     const canvas = document.createElement('canvas');
-    canvas.width = video.videoWidth || 1920;
-    canvas.height = video.videoHeight || 1080;
+
+    if (needsRotation) {
+      canvas.width = sourceHeight;
+      canvas.height = sourceWidth;
+    } else {
+      canvas.width = sourceWidth;
+      canvas.height = sourceHeight;
+    }
 
     const ctx = canvas.getContext('2d');
     if (!ctx) return null;
 
-    // Flip horizontally if user facing camera
-    if (facingMode === 'user') {
-      ctx.translate(canvas.width, 0);
-      ctx.scale(-1, 1);
+    ctx.save();
+
+    if (!needsRotation) {
+      // Normal capture. Mirror only the front camera.
+      if (facingMode === 'user') {
+        ctx.translate(canvas.width, 0);
+        ctx.scale(-1, 1);
+      }
+
+      ctx.drawImage(video, 0, 0, sourceWidth, sourceHeight);
+    } else if (targetLandscape && !sourceLandscape) {
+      // Portrait camera buffer -> landscape output.
+      ctx.translate(0, sourceWidth);
+      ctx.rotate(-Math.PI / 2);
+
+      if (facingMode === 'user') {
+        ctx.translate(sourceHeight, 0);
+        ctx.scale(-1, 1);
+      }
+
+      ctx.drawImage(video, 0, 0, sourceWidth, sourceHeight);
+    } else {
+      // Landscape camera buffer -> portrait output.
+      ctx.translate(sourceHeight, 0);
+      ctx.rotate(Math.PI / 2);
+
+      if (facingMode === 'user') {
+        ctx.translate(sourceWidth, 0);
+        ctx.scale(-1, 1);
+      }
+
+      ctx.drawImage(video, 0, 0, sourceWidth, sourceHeight);
     }
 
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-    return canvas.toDataURL('image/jpeg', 0.95);
-  }, [isStreaming, facingMode, playShutterSound]);
+    ctx.restore();
+
+    const result = canvas.toDataURL('image/jpeg', 0.95);
+
+    console.log('[CAMERA RESULT]', {
+      width: canvas.width,
+      height: canvas.height,
+      orientation: canvas.width > canvas.height ? 'LANDSCAPE' : 'PORTRAIT',
+      rotated: needsRotation,
+    });
+
+    return result;
+  }, [isStreaming, facingMode, playShutterSound, getCurrentOrientation]);
 
   useEffect(() => {
     startStream();
