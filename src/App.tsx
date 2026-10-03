@@ -72,7 +72,7 @@ function MainAppContent() {
     deferredPrompt.prompt();
     const { outcome } = await deferredPrompt.userChoice;
     if (outcome === 'accepted') {
-      showToast('School Event Geo Camera installed to home screen!', 'success');
+      showToast('D-Cam installed to home screen!', 'success');
     }
     setDeferredPrompt(null);
   };

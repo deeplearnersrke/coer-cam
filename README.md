@@ -1,4 +1,4 @@
-# School Event Geo Camera 📸📍
+# D-Cam 📸📍
 
 **Tagline:** Capture • GeoTag • Document
 

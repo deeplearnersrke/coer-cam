@@ -1,6 +1,6 @@
 {
   "short_name": "GeoCamera",
-  "name": "School Event Geo Camera",
+  "name": "D-Cam",
   "description": "Capture, GeoTag, Stamp, and Document school events completely offline.",
   "start_url": "/",
   "display": "standalone",

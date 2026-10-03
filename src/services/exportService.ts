@@ -26,7 +26,7 @@ export async function generatePdfReport(opts: {
   const { event, photos, settings } = opts;
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
 
-  const schoolName = event?.schoolName || settings?.schoolName || 'School Event Geo Camera';
+  const schoolName = event?.schoolName || settings?.schoolName || 'D-Cam';
   const eventName = event?.name || 'Inspection & Field Documentation';
   const department = event?.department || 'General';
   const organizer = event?.organizer || 'N/A';

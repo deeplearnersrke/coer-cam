@@ -69,7 +69,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               <span>Offline Geo Tag Engine Ready</span>
             </div>
             <h2 className="text-2xl sm:text-3xl font-extrabold tracking-tight">
-              School Event Geo Camera
+              D-Cam
             </h2>
             <p className="text-sm text-blue-100/90 max-w-md">
               Capture photos stamped with GPS coordinates, school branding, department details & location metadata.
