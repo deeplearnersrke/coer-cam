@@ -57,7 +57,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       {/* Header */}
       <div>
         <h2 className="text-xl font-extrabold text-white tracking-tight">App Preferences & Storage</h2>
-        <p className="text-xs text-slate-400">Configure school branding, stamp defaults, camera compression & local IndexedDB storage.</p>
+        <p className="text-xs text-slate-400">Configure event branding, stamp defaults, camera compression & local IndexedDB storage.</p>
       </div>
 
       {/* PWA Banner if available */}
@@ -104,7 +104,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             <option value="gov_inspection">Official Government Inspection Seal</option>
             <option value="modern_glass">Modern Frosted Glass Card</option>
             <option value="minimal">Minimal Sleek Bar</option>
-            <option value="school_branding">School Branding Header & Footer</option>
+            <option value="school_branding">event branding Header & Footer</option>
           </select>
         </div>
 

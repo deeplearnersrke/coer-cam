@@ -10,7 +10,7 @@ A 100% static, client-side Progressive Web Application (PWA) customized for scho
 
 - **100% Offline & Client-Side**: No backend, server database, or API keys required. Operates completely inside the browser using IndexedDB.
 - **HTML5 Camera Module**: Live camera preview with front/rear device toggling, torch/flash support, synthesized shutter sound feedback, and live GPS/clock overlays.
-- **Canvas Stamp Engine**: Generates high-resolution stamped photos featuring 5 customizable stamp styles (*GPS Classic*, *Government Inspection*, *Modern Glass*, *Minimal*, *School Branding*). Automatically hides empty fields!
+- **Canvas Stamp Engine**: Generates high-resolution stamped photos featuring 5 customizable stamp styles (*GPS Classic*, *Government Inspection*, *Modern Glass*, *Minimal*, *event branding*). Automatically hides empty fields!
 - **Satellite GPS & Reverse Geocoding**: Captures Latitude, Longitude, Altitude, Accuracy, and Compass Heading. Automatically reverse geocodes addresses when online, and operates silently in offline mode without blocking photo capture.
 - **IndexedDB Photo Storage**: Securely stores high-res original and stamped photos locally using Dexie.js.
 - **Interactive GIS Map**: Plots photo pins on an interactive Leaflet OpenStreetMap view with thumbnail preview cards.

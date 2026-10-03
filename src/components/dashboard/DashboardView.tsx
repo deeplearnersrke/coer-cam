@@ -72,7 +72,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               D-Cam
             </h2>
             <p className="text-sm text-blue-100/90 max-w-md">
-              Capture photos stamped with GPS coordinates, school branding, department details & location metadata.
+              Capture photos stamped with GPS coordinates, event branding, department details & location metadata.
             </p>
           </div>
 

@@ -191,7 +191,7 @@ export const EventModal: React.FC<EventModalProps> = ({
               <option value="gov_inspection">Official Government Inspection Seal</option>
               <option value="modern_glass">Modern Frosted Glass Card</option>
               <option value="minimal">Minimal Sleek Bar</option>
-              <option value="school_branding">School Branding Header & Footer</option>
+              <option value="school_branding">event branding Header & Footer</option>
             </select>
           </div>
 
