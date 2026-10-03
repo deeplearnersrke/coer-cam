@@ -70,9 +70,9 @@ export const StampPreviewModal: React.FC<StampPreviewModalProps> = ({
 
   return (
 
-    <div className="fixed inset-0 z-50 bg-slate-950/95 backdrop-blur-xl overflow-hidden">
+    <div className="fixed inset-0 z-50 h-[100dvh] w-full bg-slate-950/95 backdrop-blur-xl overflow-hidden">
 
-      <div className="h-full flex flex-col min-h-0">
+      <div className="h-full min-h-0 flex flex-col">
 
 
 
@@ -130,7 +130,7 @@ export const StampPreviewModal: React.FC<StampPreviewModalProps> = ({
 
               }`}
 
-            >
+           >
 
               Stamped
 
@@ -154,7 +154,7 @@ export const StampPreviewModal: React.FC<StampPreviewModalProps> = ({
 
               }`}
 
-            >
+           >
 
               Original
 
@@ -168,7 +168,7 @@ export const StampPreviewModal: React.FC<StampPreviewModalProps> = ({
 
         {/\* Main Content \*/}
 
-        <main className="flex-1 min-h-0 overflow-y-auto flex flex-col items-center px-4 py-4 overscroll-contain">
+        <main className="flex-1 min-h-0 overflow-y-auto overscroll-contain flex flex-col items-center px-4 py-3 sm:py-4">
 
 
 
@@ -176,7 +176,7 @@ export const StampPreviewModal: React.FC<StampPreviewModalProps> = ({
 
           <div className="w-full max-w-3xl flex justify-center shrink-0">
 
-            <div className="relative w-full h-[42vh] sm:h-[48vh] landscape:h-[45vh] rounded-2xl overflow-hidden border border-slate-800 bg-black shadow-2xl">
+            <div className="relative w-full aspect-video max-h-[46dvh] landscape:max-h-[42dvh] rounded-2xl overflow-hidden border border-slate-800 bg-black shadow-2xl">
 
               <img
 
@@ -222,7 +222,7 @@ export const StampPreviewModal: React.FC<StampPreviewModalProps> = ({
 
                   }`}
 
-                >
+               >
 
                   {activeView === 'stamped'
 
@@ -242,9 +242,9 @@ export const StampPreviewModal: React.FC<StampPreviewModalProps> = ({
 
           {/\* Verification Status \*/}
 
-          <div className="w-full max-w-3xl mt-4 landscape:mt-3">
+          <div className="w-full max-w-3xl mt-3 sm:mt-4">
 
-            <div className="flex items-center justify-between px-3 py-2.5 landscape:py-2 rounded-xl bg-emerald-500/5 border border-emerald-500/20">
+            <div className="flex items-center justify-between px-3 py-2.5 rounded-xl bg-emerald-500/5 border border-emerald-500/20">
 
               <div>
 
@@ -278,7 +278,7 @@ export const StampPreviewModal: React.FC<StampPreviewModalProps> = ({
 
           {/\* Metadata \*/}
 
-          <div className="w-full max-w-3xl mt-3 landscape:mt-2">
+          <div className="w-full max-w-3xl mt-2 sm:mt-3">
 
             <div className="rounded-xl bg-slate-900/80 border border-slate-800 overflow-hidden">
 
@@ -446,7 +446,7 @@ export const StampPreviewModal: React.FC<StampPreviewModalProps> = ({
 
           {/\* Remarks \*/}
 
-          <div className="w-full max-w-3xl mt-3 landscape:mt-2">
+          <div className="w-full max-w-3xl mt-2 sm:mt-3">
 
             <label
 
@@ -454,7 +454,7 @@ export const StampPreviewModal: React.FC<StampPreviewModalProps> = ({
 
               className="block text-[10px] uppercase tracking-wider font-bold text-slate-400 mb-1.5"
 
-            >
+           >
 
               Remarks
 
@@ -516,7 +516,7 @@ export const StampPreviewModal: React.FC<StampPreviewModalProps> = ({
 
               className="flex-1 py-3 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed text-slate-200 font-semibold text-xs border border-slate-700 transition-all"
 
-            >
+           >
 
               Discard & Retake
 
@@ -534,7 +534,7 @@ export const StampPreviewModal: React.FC<StampPreviewModalProps> = ({
 
               className="flex-1 py-3 px-4 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 disabled:opacity-60 disabled:cursor-not-allowed text-white font-bold text-xs shadow-lg shadow-blue-500/20 transition-all active:scale-[0.98]"
 
-            >
+           >
 
               {isSaving ? 'Saving Photo...' : 'Save Photo'}
 
