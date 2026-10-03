@@ -1,565 +1,1621 @@
-import React, { useState } from 'react';
-
-import { GeoPhoto, SchoolEvent, StampStyle } from '../../types';
-
-import { formatCoordinates } from '../../services/gps';
+import { GeoPhoto, SchoolEvent, StampStyle, AppSettings } from '../types';
 
 
 
-interface StampPreviewModalProps {
+import { headingToCardinal } from './gps';
 
-  originalDataUrl: string;
 
-  stampedDataUrl: string;
 
-  photoNumber: string;
+import QRCode from 'qrcode';
 
-  location: GeoPhoto['location'];
 
-  event: SchoolEvent | null;
 
-  stampStyle: StampStyle;
 
-  onSave: (remarks: string) => void;
 
-  onRetake: () => void;
 
-  isSaving: boolean;
+
+/**
+
+
+
+ * Loads an image or DataURL into an HTMLImageElement
+
+
+
+ */
+
+
+
+function loadImage(src: string): Promise<HTMLImageElement> {
+
+
+
+  return new Promise((resolve, reject) => {
+
+
+
+    const img = new Image();
+
+
+
+    img.crossOrigin = 'anonymous';
+
+
+
+    img.onload = () => resolve(img);
+
+
+
+    img.onerror = (err) => reject(err);
+
+
+
+    img.src = src;
+
+
+
+  });
+
+
 
 }
 
 
 
-export const StampPreviewModal: React.FC<StampPreviewModalProps> = ({
-
-  originalDataUrl,
-
-  stampedDataUrl,
-
-  photoNumber,
-
-  location,
-
-  event,
-
-  stampStyle,
-
-  onSave,
-
-  onRetake,
-
-  isSaving,
-
-}) => {
-
-  const [activeView, setActiveView] = useState<'stamped' | 'original'>('stamped');
-
-  const [remarks, setRemarks] = useState('');
 
 
 
-  const coordinates = formatCoordinates(
 
-    location.latitude,
+/**
 
-    location.longitude
+
+
+ * Generates a QR Code as DataURL containing photo metadata
+
+
+
+ */
+
+
+
+async function generateQrDataUrl(text: string): Promise<string | null> {
+
+
+
+  try {
+
+
+
+    return await QRCode.toDataURL(text, {
+
+
+
+      margin: 1,
+
+
+
+      width: 120,
+
+
+
+      color: {
+
+
+
+        dark: '#ffffff',
+
+
+
+        light: '#00000000',
+
+
+
+      },
+
+
+
+    });
+
+
+
+  } catch (err) {
+
+
+
+    return null;
+
+
+
+  }
+
+
+
+}
+
+
+
+
+
+
+
+/**
+
+
+
+ * Formats official date: 26 Jul 2026
+
+
+
+ */
+
+
+
+function formatOfficialDate(timestamp: number): string {
+
+
+
+  const d = new Date(timestamp);
+
+
+
+  const day = String(d.getDate()).padStart(2, '0');
+
+
+
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+
+
+  const month = months[d.getMonth()];
+
+
+
+  const year = d.getFullYear();
+
+
+
+  return `${day} ${month} ${year}`;
+
+
+
+}
+
+
+
+
+
+
+
+/**
+
+
+
+ * Formats official time: 01:09:28 AM
+
+
+
+ */
+
+
+
+function formatOfficialTime(timestamp: number): string {
+
+
+
+  const d = new Date(timestamp);
+
+
+
+  let hours = d.getHours();
+
+
+
+  const minutes = String(d.getMinutes()).padStart(2, '0');
+
+
+
+  const seconds = String(d.getSeconds()).padStart(2, '0');
+
+
+
+  const ampm = hours >= 12 ? 'PM' : 'AM';
+
+
+
+  hours = hours % 12 || 12;
+
+
+
+  return `${String(hours).padStart(2, '0')}:${minutes}:${seconds} ${ampm}`;
+
+
+
+}
+
+
+
+
+
+
+
+function formatLatDegrees(lat: number): string {
+
+
+
+  const dir = lat >= 0 ? 'N' : 'S';
+
+
+
+  return `${Math.abs(lat).toFixed(6)}° ${dir}`;
+
+
+
+}
+
+
+
+
+
+
+
+function formatLonDegrees(lon: number): string {
+
+
+
+  const dir = lon >= 0 ? 'E' : 'W';
+
+
+
+  return `${Math.abs(lon).toFixed(6)}° ${dir}`;
+
+
+
+}
+
+
+
+
+
+
+
+/**
+
+
+
+ * Wraps text into multiple lines given a max width in pixels
+
+
+
+ */
+
+
+
+function wrapText(
+
+
+
+  ctx: CanvasRenderingContext2D,
+
+
+
+  text: string,
+
+
+
+  maxWidth: number
+
+
+
+): string[] {
+
+
+
+  if (!text || maxWidth <= 0) return [];
+
+
+
+  const words = text.trim().split(/\s+/);
+
+
+
+  const lines: string[] = [];
+
+
+
+  let currentLine = words[0] || '';
+
+
+
+
+
+
+
+  for (let i = 1; i < words.length; i++) {
+
+
+
+    const word = words[i];
+
+
+
+    const width = ctx.measureText(currentLine + ' ' + word).width;
+
+
+
+    if (width <= maxWidth) {
+
+
+
+      currentLine += ' ' + word;
+
+
+
+    } else {
+
+
+
+      lines.push(currentLine);
+
+
+
+      currentLine = word;
+
+
+
+    }
+
+
+
+  }
+
+
+
+  if (currentLine) {
+
+
+
+    lines.push(currentLine);
+
+
+
+  }
+
+
+
+  return lines;
+
+
+
+}
+
+
+
+
+
+
+
+interface StampInputData {
+
+
+
+  imageSrc: string; // Data URL or Blob URL
+
+
+
+  event?: SchoolEvent;
+
+
+
+  photoNumber: string;
+
+
+
+  location: GeoPhoto['location'];
+
+
+
+  timestamp: number;
+
+
+
+  stampStyle: StampStyle;
+
+
+
+  settings?: AppSettings;
+
+
+
+  customSchoolName?: string;
+
+
+
+  customRemarks?: string;
+
+
+
+}
+
+
+
+
+
+
+
+interface KeyVal {
+
+
+
+  label: string;
+
+
+
+  value: string;
+
+
+
+}
+
+
+
+
+
+
+
+/**
+
+
+
+ * Helper to draw rounded rectangle on Canvas
+
+
+
+ */
+
+
+
+function drawRoundedRect(
+
+
+
+  ctx: CanvasRenderingContext2D,
+
+
+
+  x: number, y: number, width: number, height: number, radius: number
+
+
+
+) {
+
+
+
+  ctx.beginPath();
+
+
+
+  ctx.moveTo(x + radius, y);
+
+
+
+  ctx.lineTo(x + width - radius, y);
+
+
+
+  ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
+
+
+
+  ctx.lineTo(x + width, y + height - radius);
+
+
+
+  ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
+
+
+
+  ctx.lineTo(x + radius, y + height);
+
+
+
+  ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
+
+
+
+  ctx.lineTo(x, y + radius);
+
+
+
+  ctx.quadraticCurveTo(x, y, x + radius, y);
+
+
+
+  ctx.closePath();
+
+
+
+}
+
+
+
+
+
+
+
+/**
+
+
+
+ * Core Canvas Stamp Engine with Official Monochrome Document Layout
+
+
+
+ */
+
+
+
+export async function generateStampedImage(input: StampInputData): Promise<{ blob: Blob; dataUrl: string }> {
+
+
+
+  const {
+
+
+
+    imageSrc,
+
+
+
+    event,
+
+
+
+    photoNumber,
+
+
+
+    location,
+
+
+
+    timestamp,
+
+
+
+    stampStyle = 'gps_classic',
+
+
+
+    settings,
+
+
+
+  } = input;
+
+
+
+
+
+
+
+  const baseImg = await loadImage(imageSrc);
+
+
+
+  const canvas = document.createElement('canvas');
+
+
+
+  canvas.width = baseImg.naturalWidth || baseImg.width || 1920;
+
+
+
+  canvas.height = baseImg.naturalHeight || baseImg.height || 1080;
+
+
+
+
+
+
+
+  const ctx = canvas.getContext('2d');
+
+
+
+  if (!ctx) throw new Error('Could not get canvas context');
+
+
+
+
+
+
+
+  // Draw original high-res photo
+
+
+
+  ctx.drawImage(baseImg, 0, 0, canvas.width, canvas.height);
+
+
+
+
+
+
+
+  const scale = Math.max(canvas.width, canvas.height) / 1200; // Relative scale factor
+
+
+
+  const pad = Math.round(20 * scale); // 20px padding as specified
+
+
+
+  const cornerRadius = Math.round(12 * scale); // 12px rounded corners as specified
+
+
+
+
+
+
+
+  // Field values - auto hide empty values
+
+
+
+  const schoolName = event?.schoolName || settings?.schoolName || input.customSchoolName || 'INSTITUTION DOCUMENTATION';
+
+
+
+  const eventName = event?.name || '';
+
+
+
+  const department = event?.department || '';
+
+
+
+  const organizer = event?.organizer || '';
+
+
+
+  const locationName = event?.locationName || '';
+
+
+
+  const remarks = event?.remarks || input.customRemarks || '';
+
+
+
+  const logoUrl = event?.logoDataUrl || settings?.logoDataUrl || '';
+
+
+
+
+
+
+
+  const dateStr = formatOfficialDate(timestamp);
+
+
+
+  const timeStr = formatOfficialTime(timestamp);
+
+
+
+
+
+
+
+  const hasCoords = location.latitude !== 0 || location.longitude !== 0;
+
+
+
+  const latStr = hasCoords ? formatLatDegrees(location.latitude) : '';
+
+
+
+  const lonStr = hasCoords ? formatLonDegrees(location.longitude) : '';
+
+
+
+  const accStr = location.accuracy && location.accuracy < 900 ? `±${Math.round(location.accuracy)} m` : '';
+
+
+
+  const altStr = location.altitude ? `${Math.round(location.altitude)} m` : '';
+
+
+
+
+
+
+
+  const addr = location.address;
+
+
+
+  const addressLine = addr?.formattedAddress || [
+
+
+
+    addr?.village,
+
+
+
+    addr?.city,
+
+
+
+    addr?.district,
+
+
+
+    addr?.state,
+
+
+
+    addr?.country,
+
+
+
+  ].filter(Boolean).join(', ') || locationName;
+
+
+
+
+
+
+
+  // Build Key-Value list (ONLY non-empty values!)
+
+
+
+  const items: KeyVal[] = [];
+
+
+
+
+
+
+
+  if (department) items.push({ label: 'Department', value: department });
+
+
+
+  if (organizer) items.push({ label: 'Organizer', value: organizer });
+
+
+
+  if (addressLine) items.push({ label: 'Location', value: addressLine });
+
+
+
+  if (latStr) items.push({ label: 'Latitude', value: latStr });
+
+
+
+  if (lonStr) items.push({ label: 'Longitude', value: lonStr });
+
+
+
+  if (accStr) items.push({ label: 'Accuracy', value: accStr });
+
+
+
+  if (altStr) items.push({ label: 'Altitude', value: altStr });
+
+
+
+  items.push({ label: 'Date', value: dateStr });
+
+
+
+  items.push({ label: 'Time', value: timeStr });
+
+
+
+  items.push({ label: 'Photo ID', value: photoNumber });
+
+
+
+  if (remarks) items.push({ label: 'Remarks', value: remarks });
+
+
+
+
+
+
+
+  // QR Code (Only if enabled in settings)
+
+
+
+  let qrImg: HTMLImageElement | null = null;
+
+
+
+  if (settings?.showQrCode) {
+
+
+
+    const qrText = `ID:${photoNumber}|LAT:${location.latitude.toFixed(6)}|LON:${location.longitude.toFixed(6)}`;
+
+
+
+    const qrData = await generateQrDataUrl(qrText);
+
+
+
+    if (qrData) {
+
+
+
+      try {
+
+
+
+        qrImg = await loadImage(qrData);
+
+
+
+      } catch (e) {
+
+
+
+        // ignore
+
+
+
+      }
+
+
+
+    }
+
+
+
+  }
+
+
+
+
+
+
+
+  // School Logo (Optional)
+
+
+
+  let logoImg: HTMLImageElement | null = null;
+
+
+
+  if (logoUrl) {
+
+
+
+    try {
+
+
+
+      logoImg = await loadImage(logoUrl);
+
+
+
+    } catch (e) {
+
+
+
+      // ignore
+
+
+
+    }
+
+
+
+  }
+
+
+
+
+
+
+
+  // ========================================================
+
+
+
+  // RENDER OFFICIAL DOCUMENT PANEL
+
+
+
+  // ========================================================
+
+
+
+
+
+
+
+  // Typography definitions (SemiBold, Medium, Regular)
+
+
+
+  const fontHeader = `600 ${Math.round(18 * scale)}px 'Inter', -apple-system, BlinkMacSystemFont, sans-serif`;
+
+
+
+  const fontSubHeader = `500 ${Math.round(15 * scale)}px 'Inter', -apple-system, BlinkMacSystemFont, sans-serif`;
+
+
+
+  const fontLabel = `500 ${Math.round(13 * scale)}px 'Inter', -apple-system, BlinkMacSystemFont, sans-serif`;
+
+
+
+  const fontValue = `400 ${Math.round(13 * scale)}px 'Inter', -apple-system, BlinkMacSystemFont, sans-serif`;
+
+
+
+
+
+
+
+  // --------------------------------------------------------
+
+  // ORIENTATION-AWARE PANEL
+
+  //
+
+  // Do NOT use CSS/device orientation for the final stamp.
+
+  // The actual captured image dimensions are authoritative:
+
+  //   width > height  => landscape photo
+
+  //   width <= height => portrait photo
+
+  //
+
+  // Portrait:
+
+  //   wide panel along the bottom
+
+  //
+
+  // Landscape:
+
+  //   compact vertical panel on the right side
+
+  // --------------------------------------------------------
+
+  const isLandscapePhoto = canvas.width > canvas.height;
+
+
+
+  // Landscape gets a side panel. Portrait keeps the existing
+
+  // bottom-panel style.
+
+  const panelWidth = isLandscapePhoto
+
+    ? Math.min(
+
+        canvas.width - pad * 2,
+
+        Math.round(420 * scale)
+
+      )
+
+    : Math.min(
+
+        canvas.width - pad * 2,
+
+        Math.round(620 * scale)
+
+      );
+
+
+
+  const panelX = isLandscapePhoto
+
+    ? canvas.width - panelWidth - pad
+
+    : pad;
+
+
+
+  // Landscape needs a slightly more compact panel so it does
+
+  // not cover a large portion of the photo.
+
+  const effectivePad = isLandscapePhoto
+
+    ? Math.round(14 * scale)
+
+    : pad;
+
+
+
+  const headerFontSize = isLandscapePhoto ? 16 : 18;
+
+  const subHeaderFontSize = isLandscapePhoto ? 13 : 15;
+
+  const labelFontSize = isLandscapePhoto ? 11 : 13;
+
+  const valueFontSize = isLandscapePhoto ? 11 : 13;
+
+
+
+  const panelFontHeader =
+
+    `600 ${Math.round(headerFontSize * scale)}px 'Inter', -apple-system, BlinkMacSystemFont, sans-serif`;
+
+  const panelFontSubHeader =
+
+    `500 ${Math.round(subHeaderFontSize * scale)}px 'Inter', -apple-system, BlinkMacSystemFont, sans-serif`;
+
+  const panelFontLabel =
+
+    `500 ${Math.round(labelFontSize * scale)}px 'Inter', -apple-system, BlinkMacSystemFont, sans-serif`;
+
+  const panelFontValue =
+
+    `400 ${Math.round(valueFontSize * scale)}px 'Inter', -apple-system, BlinkMacSystemFont, sans-serif`;
+
+
+
+  // Measure label column.
+
+  ctx.font = panelFontLabel;
+
+  let maxLabelWidth = 0;
+
+  items.forEach((item) => {
+
+    const w = ctx.measureText(`${item.label} : `).width;
+
+    if (w > maxLabelWidth) maxLabelWidth = w;
+
+  });
+
+
+
+  // Keep QR out of the text column.
+
+  const qrReserve = qrImg
+
+    ? Math.round((isLandscapePhoto ? 64 : 80) * scale)
+
+    : 0;
+
+
+
+  const valueAvailWidth = Math.max(
+
+    Math.round(80 * scale),
+
+    panelWidth -
+
+      (effectivePad * 2) -
+
+      maxLabelWidth -
+
+      qrReserve
 
   );
 
 
 
-  return (
+  // Header wrapping.
 
-    <div className="fixed inset-0 z-50 h-[100dvh] w-full bg-slate-950/95 backdrop-blur-xl overflow-hidden">
+  ctx.font = panelFontHeader;
 
-      <div className="h-full min-h-0 flex flex-col">
+  const headerLines = wrapText(
 
+    ctx,
 
+    schoolName,
 
-        {/\* Header \*/}
+    panelWidth -
 
-        <header className="shrink-0 flex items-center justify-between px-4 py-3 border-b border-slate-800 bg-slate-950/90">
+      effectivePad * 2 -
 
-          <div>
-
-            <p className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">
-
-              Photo Verification
-
-            </p>
-
-
-
-            <div className="flex items-center gap-2 mt-0.5">
-
-              <h2 className="text-sm sm:text-base font-bold text-white">
-
-                Review Photo
-
-              </h2>
-
-
-
-              <span className="px-2 py-0.5 rounded-md bg-amber-500/10 border border-amber-500/20 text-[10px] font-mono font-bold text-amber-400">
-
-                {photoNumber}
-
-              </span>
-
-            </div>
-
-          </div>
-
-
-
-          <div className="flex items-center gap-1 bg-slate-900 border border-slate-800 rounded-lg p-1">
-
-            <button
-
-              type="button"
-
-              onClick={() => setActiveView('stamped')}
-
-              className={`px-3 py-1.5 rounded-md text-[11px] font-semibold transition-all ${
-
-                activeView === 'stamped'
-
-                  ? 'bg-blue-600 text-white shadow-sm'
-
-                  : 'text-slate-400 hover:text-white'
-
-              }`}
-
-           >
-
-              Stamped
-
-            </button>
-
-
-
-            <button
-
-              type="button"
-
-              onClick={() => setActiveView('original')}
-
-              className={`px-3 py-1.5 rounded-md text-[11px] font-semibold transition-all ${
-
-                activeView === 'original'
-
-                  ? 'bg-blue-600 text-white shadow-sm'
-
-                  : 'text-slate-400 hover:text-white'
-
-              }`}
-
-           >
-
-              Original
-
-            </button>
-
-          </div>
-
-        </header>
-
-
-
-        {/\* Main Content \*/}
-
-        <main className="flex-1 min-h-0 overflow-y-auto overscroll-contain flex flex-col items-center px-4 py-3 sm:py-4">
-
-
-
-          {/\* Image Preview \*/}
-
-          <div className="w-full max-w-3xl flex justify-center shrink-0">
-
-            <div className="relative w-full aspect-video max-h-[46dvh] landscape:max-h-[42dvh] rounded-2xl overflow-hidden border border-slate-800 bg-black shadow-2xl">
-
-              <img
-
-                src={
-
-                  activeView === 'stamped'
-
-                    ? stampedDataUrl
-
-                    : originalDataUrl
-
-                }
-
-                alt={
-
-                  activeView === 'stamped'
-
-                    ? 'Stamped photo preview'
-
-                    : 'Original photo preview'
-
-                }
-
-                className="block w-full h-full object-contain"
-
-              />
-
-
-
-              {/\* Image Status \*/}
-
-              <div className="absolute top-3 left-3">
-
-                <span
-
-                  className={`px-2.5 py-1 rounded-md text-[10px] font-semibold backdrop-blur-md border ${
-
-                    activeView === 'stamped'
-
-                      ? 'bg-emerald-500/15 border-emerald-400/30 text-emerald-300'
-
-                      : 'bg-slate-900/80 border-slate-700 text-slate-300'
-
-                  }`}
-
-               >
-
-                  {activeView === 'stamped'
-
-                    ? 'STAMPED PREVIEW'
-
-                    : 'ORIGINAL PHOTO'}
-
-                </span>
-
-              </div>
-
-            </div>
-
-          </div>
-
-
-
-          {/\* Verification Status \*/}
-
-          <div className="w-full max-w-3xl mt-3 sm:mt-4">
-
-            <div className="flex items-center justify-between px-3 py-2.5 rounded-xl bg-emerald-500/5 border border-emerald-500/20">
-
-              <div>
-
-                <p className="text-xs font-semibold text-emerald-300">
-
-                  Photo Ready for Saving
-
-                </p>
-
-                <p className="text-[10px] text-slate-500 mt-0.5">
-
-                  Verify the information below before saving
-
-                </p>
-
-              </div>
-
-
-
-              <span className="text-[10px] font-semibold text-emerald-400">
-
-                VERIFIED
-
-              </span>
-
-            </div>
-
-          </div>
-
-
-
-          {/\* Metadata \*/}
-
-          <div className="w-full max-w-3xl mt-2 sm:mt-3">
-
-            <div className="rounded-xl bg-slate-900/80 border border-slate-800 overflow-hidden">
-
-
-
-              <div className="px-3 py-2 border-b border-slate-800">
-
-                <p className="text-[10px] uppercase tracking-wider font-bold text-slate-400">
-
-                  Photo Information
-
-                </p>
-
-              </div>
-
-
-
-              <div className="grid grid-cols-1 sm:grid-cols-2">
-
-
-
-                {/\* GPS \*/}
-
-                <div className="px-3 py-3 border-b sm:border-r border-slate-800">
-
-                  <p className="text-[10px] text-slate-500 uppercase tracking-wide">
-
-                    GPS Coordinates
-
-                  </p>
-
-
-
-                  <p className="text-xs text-slate-200 font-mono mt-1 break-all">
-
-                    {coordinates}
-
-                  </p>
-
-
-
-                  {location.accuracy !== undefined &&
-
-                    location.accuracy !== null && (
-
-                      <p className="text-[10px] text-slate-500 mt-1">
-
-                        Accuracy: ±{Math.round(location.accuracy)}m
-
-                      </p>
-
-                    )}
-
-                </div>
-
-
-
-                {/\* Address \*/}
-
-                <div className="px-3 py-3 border-b border-slate-800">
-
-                  <p className="text-[10px] text-slate-500 uppercase tracking-wide">
-
-                    Location
-
-                  </p>
-
-
-
-                  <p className="text-xs text-slate-200 mt-1 line-clamp-2">
-
-                    {location.address?.formattedAddress ||
-
-                      'Address not available'}
-
-                  </p>
-
-                </div>
-
-
-
-                {/\* Event \*/}
-
-                <div className="px-3 py-3 sm:border-r border-slate-800">
-
-                  <p className="text-[10px] text-slate-500 uppercase tracking-wide">
-
-                    Event
-
-                  </p>
-
-
-
-                  {event ? (
-
-                    <>
-
-                      <p className="text-xs text-blue-400 font-semibold mt-1">
-
-                        {event.name}
-
-                      </p>
-
-
-
-                      <p className="text-[10px] text-slate-500 mt-0.5">
-
-                        {event.schoolName}
-
-                      </p>
-
-                    </>
-
-                  ) : (
-
-                    <p className="text-xs text-slate-500 mt-1">
-
-                      No event selected
-
-                    </p>
-
-                  )}
-
-                </div>
-
-
-
-                {/\* Stamp \*/}
-
-                <div className="px-3 py-3">
-
-                  <p className="text-[10px] text-slate-500 uppercase tracking-wide">
-
-                    Stamp Style
-
-                  </p>
-
-
-
-                  <p className="text-xs text-slate-200 mt-1 capitalize">
-
-                    {String(stampStyle)}
-
-                  </p>
-
-
-
-                  <p className="text-[10px] text-emerald-400 mt-0.5">
-
-                    Applied
-
-                  </p>
-
-                </div>
-
-
-
-              </div>
-
-            </div>
-
-          </div>
-
-
-
-          {/\* Remarks \*/}
-
-          <div className="w-full max-w-3xl mt-2 sm:mt-3">
-
-            <label
-
-              htmlFor="photo-remarks"
-
-              className="block text-[10px] uppercase tracking-wider font-bold text-slate-400 mb-1.5"
-
-           >
-
-              Remarks
-
-            </label>
-
-
-
-            <textarea
-
-              id="photo-remarks"
-
-              value={remarks}
-
-              onChange={(e) => setRemarks(e.target.value)}
-
-              placeholder="Add optional inspection notes or remarks..."
-
-              rows={3}
-
-              maxLength={500}
-
-              className="w-full px-3 py-2.5 rounded-xl bg-slate-900 border border-slate-800 text-slate-100 placeholder-slate-600 text-xs resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
-
-            />
-
-
-
-            <div className="flex justify-end mt-1">
-
-              <span className="text-[9px] text-slate-600">
-
-                {remarks.length}/500
-
-              </span>
-
-            </div>
-
-          </div>
-
-        </main>
-
-
-
-        {/\* Footer \*/}
-
-        <footer className="shrink-0 border-t border-slate-800 bg-slate-950/95 backdrop-blur-xl px-4 py-3">
-
-          <div className="w-full max-w-3xl mx-auto flex gap-3">
-
-
-
-            <button
-
-              type="button"
-
-              onClick={onRetake}
-
-              disabled={isSaving}
-
-              className="flex-1 py-3 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed text-slate-200 font-semibold text-xs border border-slate-700 transition-all"
-
-           >
-
-              Discard & Retake
-
-            </button>
-
-
-
-            <button
-
-              type="button"
-
-              onClick={() => onSave(remarks)}
-
-              disabled={isSaving}
-
-              className="flex-1 py-3 px-4 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 disabled:opacity-60 disabled:cursor-not-allowed text-white font-bold text-xs shadow-lg shadow-blue-500/20 transition-all active:scale-[0.98]"
-
-           >
-
-              {isSaving ? 'Saving Photo...' : 'Save Photo'}
-
-            </button>
-
-
-
-          </div>
-
-
-
-          <p className="text-center text-[9px] text-slate-600 mt-2">
-
-            Review the stamped image and location information before saving.
-
-          </p>
-
-        </footer>
-
-
-
-      </div>
-
-    </div>
+      (logoImg ? Math.round(50 * scale) : 0)
 
   );
 
-};
+
+
+  ctx.font = panelFontSubHeader;
+
+  const subHeaderLines = wrapText(
+
+    ctx,
+
+    eventName,
+
+    panelWidth - effectivePad * 2
+
+  );
+
+
+
+  // Process item lines.
+
+  ctx.font = panelFontValue;
+
+  const processedItems: { label: string; valLines: string[] }[] = [];
+
+
+
+  items.forEach((item) => {
+
+    const valLines = wrapText(ctx, item.value, valueAvailWidth);
+
+    processedItems.push({
+
+      label: item.label,
+
+      valLines: valLines.length ? valLines : ['']
+
+    });
+
+  });
+
+
+
+  // Compact line heights for landscape.
+
+  const headerLineH = Math.round(
+
+    (isLandscapePhoto ? 20 : 24) * scale
+
+  );
+
+  const subHeaderLineH = Math.round(
+
+    (isLandscapePhoto ? 17 : 20) * scale
+
+  );
+
+  const itemLineH = Math.round(
+
+    (isLandscapePhoto ? 15 : 18) * scale
+
+  );
+
+  const itemGap = Math.round(
+
+    (isLandscapePhoto ? 2 : 3) * scale
+
+  );
+
+
+
+  let totalContentH = effectivePad * 2;
+
+
+
+  totalContentH += headerLines.length * headerLineH;
+
+
+
+  if (subHeaderLines.length > 0) {
+
+    totalContentH +=
+
+      subHeaderLines.length * subHeaderLineH +
+
+      Math.round(3 * scale);
+
+  }
+
+
+
+  totalContentH += Math.round(
+
+    (isLandscapePhoto ? 8 : 12) * scale
+
+  );
+
+
+
+  processedItems.forEach((pi) => {
+
+    totalContentH +=
+
+      Math.max(1, pi.valLines.length) * itemLineH +
+
+      itemGap;
+
+  });
+
+
+
+  // Reserve QR space if the panel is landscape so it never
+
+  // overlaps the bottom text.
+
+  const qrSize = qrImg
+
+    ? Math.round((isLandscapePhoto ? 58 : 72) * scale)
+
+    : 0;
+
+
+
+  if (qrImg && isLandscapePhoto) {
+
+    totalContentH += qrSize + Math.round(4 * scale);
+
+  }
+
+
+
+  const panelHeight = Math.min(
+
+    totalContentH,
+
+    canvas.height - pad * 2
+
+  );
+
+
+
+  // Portrait keeps the panel at the bottom. Landscape moves the panel
+
+  // to the right and vertically centers it inside the image.
+
+  const panelY = isLandscapePhoto
+
+    ? Math.max(
+
+        pad,
+
+        Math.round((canvas.height - panelHeight) / 2)
+
+      )
+
+    : canvas.height - panelHeight - pad;
+
+
+
+  // Background panel.
+
+  ctx.save();
+
+
+
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
+
+
+
+  drawRoundedRect(
+
+    ctx,
+
+    panelX,
+
+    panelY,
+
+    panelWidth,
+
+    panelHeight,
+
+    cornerRadius
+
+  );
+
+
+
+  ctx.fill();
+
+
+
+  // Border.
+
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
+
+  ctx.lineWidth = Math.max(
+
+    1,
+
+    Math.round(1 * scale)
+
+  );
+
+  ctx.stroke();
+
+
+
+  // Content coordinates.
+
+  let curY =
+
+    panelY +
+
+    effectivePad +
+
+    Math.round(
+
+      (isLandscapePhoto ? 10 : 14) * scale
+
+    );
+
+
+
+  const curX = panelX + effectivePad;
+
+
+
+  // Logo.
+
+  if (logoImg) {
+
+    const logoSize = Math.round(
+
+      (isLandscapePhoto ? 38 : 48) * scale
+
+    );
+
+
+
+    ctx.drawImage(
+
+      logoImg,
+
+      panelX +
+
+        panelWidth -
+
+        effectivePad -
+
+        logoSize,
+
+      panelY + effectivePad,
+
+      logoSize,
+
+      logoSize
+
+    );
+
+  }
+
+
+
+  // Heading.
+
+  ctx.fillStyle = '#FFFFFF';
+
+  ctx.font = panelFontHeader;
+
+
+
+  headerLines.forEach((line) => {
+
+    ctx.fillText(line, curX, curY);
+
+    curY += headerLineH;
+
+  });
+
+
+
+  // Event name.
+
+  if (subHeaderLines.length > 0) {
+
+    ctx.fillStyle = '#E2E8F0';
+
+    ctx.font = panelFontSubHeader;
+
+
+
+    subHeaderLines.forEach((line) => {
+
+      ctx.fillText(line, curX, curY);
+
+      curY += subHeaderLineH;
+
+    });
+
+  }
+
+
+
+  // Divider.
+
+  curY += Math.round(
+
+    (isLandscapePhoto ? 3 : 4) * scale
+
+  );
+
+
+
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
+
+
+
+  ctx.fillRect(
+
+    curX,
+
+    curY,
+
+    panelWidth - effectivePad * 2,
+
+    Math.max(1, Math.round(1 * scale))
+
+  );
+
+
+
+  curY += Math.round(
+
+    (isLandscapePhoto ? 8 : 12) * scale
+
+  );
+
+
+
+  // Key-value pairs.
+
+  processedItems.forEach((pi) => {
+
+    const labelText = pi.label;
+
+
+
+    ctx.fillStyle = '#CBD5E1';
+
+    ctx.font = panelFontLabel;
+
+    ctx.fillText(labelText, curX, curY);
+
+
+
+    const colonX =
+
+      curX +
+
+      maxLabelWidth -
+
+      Math.round(10 * scale);
+
+
+
+    ctx.fillText(':', colonX, curY);
+
+
+
+    const valX = curX + maxLabelWidth;
+
+
+
+    ctx.fillStyle = '#FFFFFF';
+
+    ctx.font = panelFontValue;
+
+
+
+    pi.valLines.forEach((valLine, idx) => {
+
+      ctx.fillText(
+
+        valLine,
+
+        valX,
+
+        curY + idx * itemLineH
+
+      );
+
+    });
+
+
+
+    curY +=
+
+      Math.max(1, pi.valLines.length) *
+
+        itemLineH +
+
+      itemGap;
+
+  });
+
+
+
+  // QR:
+
+  // Portrait => bottom-right, as before.
+
+  // Landscape => bottom-right of the vertical side panel.
+
+  if (qrImg) {
+
+    const qrX =
+
+      panelX +
+
+      panelWidth -
+
+      effectivePad -
+
+      qrSize;
+
+
+
+    const qrY =
+
+      panelY +
+
+      panelHeight -
+
+      effectivePad -
+
+      qrSize;
+
+
+
+    ctx.drawImage(
+
+      qrImg,
+
+      qrX,
+
+      qrY,
+
+      qrSize,
+
+      qrSize
+
+    );
+
+  }
+
+
+
+  ctx.restore();
+
+  // Output blob & dataUrl
+
+
+
+  const quality = settings?.imageQuality || 0.95;
+
+
+
+  const dataUrl = canvas.toDataURL('image/jpeg', quality);
+
+
+
+
+
+
+
+  const blob = await new Promise<Blob>((resolve) => {
+
+
+
+    canvas.toBlob((b) => resolve(b || new Blob()), 'image/jpeg', quality);
+
+
+
+  });
+
+
+
+
+
+
+
+  return { blob, dataUrl };
+
+
+
+}
