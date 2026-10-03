@@ -112,8 +112,7 @@ export function useCamera() {
   }, [hasTorch, torchOn]);
 
   /**
-   * Read orientation at the exact moment Capture is pressed.
-   * This deliberately does not use React orientation state.
+   * Get current device orientation at capture time
    */
   const getCurrentOrientation = useCallback(() => {
     if (typeof window === 'undefined') {
@@ -122,34 +121,33 @@ export function useCamera() {
 
     let angle = 0;
 
+    // Primary: Screen Orientation API
     if (screen.orientation && typeof screen.orientation.angle === 'number') {
       angle = screen.orientation.angle;
     }
-
-    // iOS/Safari fallback.
-    if (angle === 0 && typeof (window as any).orientation === 'number') {
+    // Fallback: iOS Safari
+    else if (typeof (window as any).orientation === 'number') {
       angle = (window as any).orientation;
     }
 
+    // Normalize angle to 0-360
     angle = ((angle % 360) + 360) % 360;
 
+    // Determine landscape from viewport dimensions
     const viewportLandscape = window.innerWidth > window.innerHeight;
+
+    // Map angle to landscape boolean
+    // 90 or 270 = landscape, 0 or 180 = portrait
+    const isLandscape = angle === 90 || angle === 270;
 
     return {
       angle,
-      landscape:
-        angle === 90 || angle === 270
-          ? true
-          : angle === 0 || angle === 180
-            ? false
-            : viewportLandscape,
+      landscape: isLandscape || (angle === 0 && viewportLandscape),
     };
   }, []);
 
   /**
-   * Capture and normalize the actual camera pixels.
-   * The stamp engine receives an image whose width/height match
-   * the current physical device orientation.
+   * Capture frame with proper orientation normalization
    */
   const captureFrame = useCallback((): string | null => {
     const video = videoRef.current;
@@ -195,34 +193,38 @@ export function useCamera() {
     ctx.save();
 
     if (!needsRotation) {
-      // Normal capture. Mirror only the front camera.
+      // No rotation needed - just draw normally
       if (facingMode === 'user') {
+        // Mirror front camera
         ctx.translate(canvas.width, 0);
         ctx.scale(-1, 1);
       }
-
       ctx.drawImage(video, 0, 0, sourceWidth, sourceHeight);
     } else if (targetLandscape && !sourceLandscape) {
-      // Portrait camera buffer -> landscape output.
+      // Source is portrait, target is landscape
+      // Rotate -90 degrees (counter-clockwise)
       ctx.translate(0, sourceWidth);
       ctx.rotate(-Math.PI / 2);
-
+      
       if (facingMode === 'user') {
+        // Mirror front camera after rotation
         ctx.translate(sourceHeight, 0);
         ctx.scale(-1, 1);
       }
-
+      
       ctx.drawImage(video, 0, 0, sourceWidth, sourceHeight);
     } else {
-      // Landscape camera buffer -> portrait output.
+      // Source is landscape, target is portrait
+      // Rotate +90 degrees (clockwise)
       ctx.translate(sourceHeight, 0);
       ctx.rotate(Math.PI / 2);
-
+      
       if (facingMode === 'user') {
+        // Mirror front camera after rotation
         ctx.translate(sourceWidth, 0);
         ctx.scale(-1, 1);
       }
-
+      
       ctx.drawImage(video, 0, 0, sourceWidth, sourceHeight);
     }
 
