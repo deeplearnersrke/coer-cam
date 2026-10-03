@@ -41,7 +41,7 @@ export const EventsView: React.FC<EventsViewProps> = ({ showToast }) => {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-xl font-extrabold text-white tracking-tight">School Events & Inspection Tasks</h2>
+          <h2 className="text-xl font-extrabold text-white tracking-tight">Events & Inspection Tasks</h2>
           <p className="text-xs text-slate-400">Organize photos under distinct events, departments & custom prefix codes.</p>
         </div>
 

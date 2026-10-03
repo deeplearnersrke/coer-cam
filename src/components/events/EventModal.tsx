@@ -95,7 +95,7 @@ export const EventModal: React.FC<EventModalProps> = ({
         <div className="flex items-center justify-between border-b border-slate-800 pb-4">
           <div className="flex items-center gap-2">
             <School className="w-5 h-5 text-blue-400" />
-            <h2 className="text-lg font-bold">{eventToEdit ? 'Edit School Event' : 'Create New School Event'}</h2>
+            <h2 className="text-lg font-bold">{eventToEdit ? 'Edit Event' : 'Create New Event'}</h2>
           </div>
           <button
             onClick={onClose}

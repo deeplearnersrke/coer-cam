@@ -34,7 +34,7 @@ export const SplashScreen: React.FC<{ onFinish: () => void }> = ({ onFinish }) =
         {/* Title */}
         <div className="space-y-2">
           <h1 className="text-2xl font-extrabold tracking-tight">
-            School Event <span className="text-blue-400">Geo Camera</span>
+            Event <span className="text-blue-400">Geo Camera</span>
           </h1>
           <p className="text-xs text-slate-400 font-medium">Capture • GeoTag • Document</p>
         </div>

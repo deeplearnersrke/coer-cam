@@ -36,7 +36,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           <div>
             <div className="flex items-center gap-1.5">
               <h1 className="font-extrabold text-base tracking-tight text-white leading-tight">
-                School Event <span className="text-blue-400">Geo Cam</span>
+                D <span className="text-blue-400">Cam</span>
               </h1>
             </div>
             <p className="text-[11px] text-slate-400 font-medium">Capture • GeoTag • Document</p>
