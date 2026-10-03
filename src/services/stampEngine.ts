@@ -631,7 +631,14 @@ export async function generateStampedImage(input: StampInputData): Promise<{ blo
     canvas.height - pad * 2
   );
 
-  const panelY = canvas.height - panelHeight - pad;
+  // Portrait keeps the panel at the bottom. Landscape moves the panel
+  // to the right and vertically centers it inside the image.
+  const panelY = isLandscapePhoto
+    ? Math.max(
+        pad,
+        Math.round((canvas.height - panelHeight) / 2)
+      )
+    : canvas.height - panelHeight - pad;
 
   // Background panel.
   ctx.save();

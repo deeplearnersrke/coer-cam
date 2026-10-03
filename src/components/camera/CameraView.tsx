@@ -60,6 +60,50 @@ interface CameraViewProps {
 
 
 
+/** Normalize camera pixels to the device orientation before stamping. */
+async function normalizeCapturedFrameOrientation(
+  dataUrl: string,
+  targetLandscape: boolean,
+): Promise<string> {
+  if (typeof window === 'undefined') return dataUrl;
+
+  const img = new Image();
+  await new Promise<void>((resolve, reject) => {
+    img.onload = () => resolve();
+    img.onerror = () => reject(new Error('Unable to read captured camera frame.'));
+    img.src = dataUrl;
+  });
+
+  const sourceWidth = img.naturalWidth || img.width;
+  const sourceHeight = img.naturalHeight || img.height;
+  if (!sourceWidth || !sourceHeight) return dataUrl;
+
+  const sourceLandscape = sourceWidth > sourceHeight;
+  if (sourceLandscape === targetLandscape) return dataUrl;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = sourceHeight;
+  canvas.height = sourceWidth;
+
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return dataUrl;
+
+  ctx.save();
+  if (targetLandscape) {
+    // Phone is landscape but camera returned portrait pixels.
+    ctx.translate(0, sourceWidth);
+    ctx.rotate(-Math.PI / 2);
+  } else {
+    // Phone is portrait but camera returned landscape pixels.
+    ctx.translate(sourceHeight, 0);
+    ctx.rotate(Math.PI / 2);
+  }
+  ctx.drawImage(img, 0, 0, sourceWidth, sourceHeight);
+  ctx.restore();
+
+  return canvas.toDataURL('image/jpeg', 0.98);
+}
+
 function dataURLtoBlob(dataurl: string): Blob {
 
   try {
@@ -227,7 +271,7 @@ export const CameraView: React.FC<CameraViewProps> = ({
 
 
 
-  /\*
+  /*
 
    \* ---------------------------------------------------------
 
@@ -235,7 +279,7 @@ export const CameraView: React.FC<CameraViewProps> = ({
 
    \* ---------------------------------------------------------
 
-   \*/
+   */
 
 
 
@@ -331,7 +375,7 @@ export const CameraView: React.FC<CameraViewProps> = ({
 
 
 
-  /\*
+  /*
 
    \* ---------------------------------------------------------
 
@@ -339,7 +383,7 @@ export const CameraView: React.FC<CameraViewProps> = ({
 
    \* ---------------------------------------------------------
 
-   \*/
+   */
 
 
 
@@ -355,7 +399,7 @@ export const CameraView: React.FC<CameraViewProps> = ({
 
 
 
-  /\*
+  /*
 
    \* ---------------------------------------------------------
 
@@ -363,7 +407,7 @@ export const CameraView: React.FC<CameraViewProps> = ({
 
    \* ---------------------------------------------------------
 
-   \*/
+   */
 
 
 
@@ -385,7 +429,7 @@ export const CameraView: React.FC<CameraViewProps> = ({
 
 
 
-  /\*
+  /*
 
    \* ---------------------------------------------------------
 
@@ -393,7 +437,7 @@ export const CameraView: React.FC<CameraViewProps> = ({
 
    \* ---------------------------------------------------------
 
-   \*/
+   */
 
 
 
@@ -475,7 +519,7 @@ export const CameraView: React.FC<CameraViewProps> = ({
 
 
 
-  /\*
+  /*
 
    \* ---------------------------------------------------------
 
@@ -483,7 +527,7 @@ export const CameraView: React.FC<CameraViewProps> = ({
 
    \* ---------------------------------------------------------
 
-   \*/
+   */
 
 
 
@@ -535,7 +579,7 @@ export const CameraView: React.FC<CameraViewProps> = ({
 
 
 
-  /\*
+  /*
 
    \* ---------------------------------------------------------
 
@@ -543,7 +587,7 @@ export const CameraView: React.FC<CameraViewProps> = ({
 
    \* ---------------------------------------------------------
 
-   \*/
+   */
 
 
 
@@ -567,7 +611,7 @@ export const CameraView: React.FC<CameraViewProps> = ({
 
 
 
-  /\*
+  /*
 
    \* ---------------------------------------------------------
 
@@ -575,7 +619,7 @@ export const CameraView: React.FC<CameraViewProps> = ({
 
    \* ---------------------------------------------------------
 
-   \*/
+   */
 
 
 
@@ -603,19 +647,19 @@ export const CameraView: React.FC<CameraViewProps> = ({
 
     try {
 
-      /\*
+      /*
 
        \* 1. Capture camera frame
 
-       \*/
+       */
 
 
 
-      const frameDataUrl = captureFrame();
+      const rawFrameDataUrl = captureFrame();
 
 
 
-      if (!frameDataUrl) {
+      if (!rawFrameDataUrl) {
 
         throw new Error(
 
@@ -627,11 +671,21 @@ export const CameraView: React.FC<CameraViewProps> = ({
 
 
 
-      /\*
+            // Normalize the actual pixels before the stamp engine decides layout.
+      // This fixes mobile browsers that keep the frame buffer portrait after
+      // the device is rotated to landscape.
+      const frameDataUrl = await normalizeCapturedFrameOrientation(
+        rawFrameDataUrl,
+        isLandscape,
+      );
+
+
+
+/*
 
        \* 2. Prepare GPS location
 
-       \*/
+       */
 
 
 
@@ -653,11 +707,11 @@ export const CameraView: React.FC<CameraViewProps> = ({
 
 
 
-      /\*
+      /*
 
        \* 3. Reverse geocode if needed
 
-       \*/
+       */
 
 
 
@@ -701,11 +755,11 @@ export const CameraView: React.FC<CameraViewProps> = ({
 
 
 
-      /\*
+      /*
 
        \* 4. Generate photo number
 
-       \*/
+       */
 
 
 
@@ -735,11 +789,11 @@ export const CameraView: React.FC<CameraViewProps> = ({
 
 
 
-      /\*
+      /*
 
        \* 5. Generate stamped image
 
-       \*/
+       */
 
 
 
@@ -763,11 +817,11 @@ export const CameraView: React.FC<CameraViewProps> = ({
 
 
 
-      /\*
+      /*
 
        \* 6. Original image blob
 
-       \*/
+       */
 
 
 
@@ -775,11 +829,11 @@ export const CameraView: React.FC<CameraViewProps> = ({
 
 
 
-      /\*
+      /*
 
        \* 7. Create photo object
 
-       \*/
+       */
 
 
 
@@ -877,11 +931,11 @@ export const CameraView: React.FC<CameraViewProps> = ({
 
 
 
-      /\*
+      /*
 
        \* 8. Save to IndexedDB
 
-       \*/
+       */
 
 
 
@@ -889,11 +943,11 @@ export const CameraView: React.FC<CameraViewProps> = ({
 
 
 
-      /\*
+      /*
 
        \* 9. Update thumbnail
 
-       \*/
+       */
 
 
 
@@ -901,11 +955,11 @@ export const CameraView: React.FC<CameraViewProps> = ({
 
 
 
-      /\*
+      /*
 
        \* 10. Capture success UI
 
-       \*/
+       */
 
 
 
@@ -949,7 +1003,7 @@ export const CameraView: React.FC<CameraViewProps> = ({
 
 
 
-  /\*
+  /*
 
    \* ---------------------------------------------------------
 
@@ -957,7 +1011,7 @@ export const CameraView: React.FC<CameraViewProps> = ({
 
    \* ---------------------------------------------------------
 
-   \*/
+   */
 
 
 
@@ -967,11 +1021,11 @@ export const CameraView: React.FC<CameraViewProps> = ({
 
 
 
-      {/\* =====================================================
+      {/* =====================================================
 
           CAMERA VIDEO
 
-      ====================================================== \*/}
+      ====================================================== */}
 
 
 
@@ -993,11 +1047,11 @@ export const CameraView: React.FC<CameraViewProps> = ({
 
 
 
-      {/\* =====================================================
+      {/* =====================================================
 
           CAMERA DARK GRADIENTS
 
-      ====================================================== \*/}
+      ====================================================== */}
 
 
 
@@ -1005,11 +1059,11 @@ export const CameraView: React.FC<CameraViewProps> = ({
 
 
 
-      {/\* =====================================================
+      {/* =====================================================
 
           GRID
 
-      ====================================================== \*/}
+      ====================================================== */}
 
 
 
@@ -1019,7 +1073,7 @@ export const CameraView: React.FC<CameraViewProps> = ({
 
 
 
-          {/\* Vertical lines \*/}
+          {/* Vertical lines */}
 
 
 
@@ -1031,7 +1085,7 @@ export const CameraView: React.FC<CameraViewProps> = ({
 
 
 
-          {/\* Horizontal lines \*/}
+          {/* Horizontal lines */}
 
 
 
@@ -1049,11 +1103,11 @@ export const CameraView: React.FC<CameraViewProps> = ({
 
 
 
-      {/\* =====================================================
+      {/* =====================================================
 
           CENTER FOCUS RETICLE
 
-      ====================================================== \*/}
+      ====================================================== */}
 
 
 
@@ -1085,11 +1139,11 @@ export const CameraView: React.FC<CameraViewProps> = ({
 
 
 
-      {/\* =====================================================
+      {/* =====================================================
 
           LEVEL INDICATOR
 
-      ====================================================== \*/}
+      ====================================================== */}
 
 
 
@@ -1157,11 +1211,11 @@ export const CameraView: React.FC<CameraViewProps> = ({
 
 
 
-      {/\* =====================================================
+      {/* =====================================================
 
           SHUTTER FLASH
 
-      ====================================================== \*/}
+      ====================================================== */}
 
 
 
@@ -1173,11 +1227,11 @@ export const CameraView: React.FC<CameraViewProps> = ({
 
 
 
-      {/\* =====================================================
+      {/* =====================================================
 
           TOP HEADER
 
-      ====================================================== \*/}
+      ====================================================== */}
 
 
 
@@ -1189,7 +1243,7 @@ export const CameraView: React.FC<CameraViewProps> = ({
 
 
 
-          {/\* Close \*/}
+          {/* Close */}
 
 
 
@@ -1237,7 +1291,7 @@ export const CameraView: React.FC<CameraViewProps> = ({
 
 
 
-          {/\* Center GPS \*/}
+          {/* Center GPS */}
 
 
 
@@ -1363,7 +1417,7 @@ export const CameraView: React.FC<CameraViewProps> = ({
 
 
 
-          {/\* Right Status \*/}
+          {/* Right Status */}
 
 
 
@@ -1371,7 +1425,7 @@ export const CameraView: React.FC<CameraViewProps> = ({
 
 
 
-            {/\* Network \*/}
+            {/* Network */}
 
 
 
@@ -1417,7 +1471,7 @@ export const CameraView: React.FC<CameraViewProps> = ({
 
 
 
-            {/\* Time \*/}
+            {/* Time */}
 
 
 
@@ -1463,11 +1517,11 @@ export const CameraView: React.FC<CameraViewProps> = ({
 
 
 
-      {/\* =====================================================
+      {/* =====================================================
 
           CAMERA ERROR
 
-      ====================================================== \*/}
+      ====================================================== */}
 
 
 
@@ -1543,11 +1597,11 @@ export const CameraView: React.FC<CameraViewProps> = ({
 
 
 
-      {/\* =====================================================
+      {/* =====================================================
 
           LIVE STAMP
 
-      ====================================================== \*/}
+      ====================================================== */}
 
 
 
@@ -1613,7 +1667,7 @@ export const CameraView: React.FC<CameraViewProps> = ({
 
 
 
-            {/\* Header \*/}
+            {/* Header */}
 
 
 
@@ -1689,7 +1743,7 @@ export const CameraView: React.FC<CameraViewProps> = ({
 
 
 
-            {/\* Information \*/}
+            {/* Information */}
 
 
 
@@ -1979,11 +2033,11 @@ export const CameraView: React.FC<CameraViewProps> = ({
 
 
 
-      {/\* =====================================================
+      {/* =====================================================
 
           TOP CAMERA TOOLS
 
-      ====================================================== \*/}
+      ====================================================== */}
 
 
 
@@ -2015,7 +2069,7 @@ export const CameraView: React.FC<CameraViewProps> = ({
 
 
 
-          {/\* Grid \*/}
+          {/* Grid */}
 
 
 
@@ -2057,7 +2111,7 @@ export const CameraView: React.FC<CameraViewProps> = ({
 
 
 
-          {/\* Stamp \*/}
+          {/* Stamp */}
 
 
 
@@ -2099,7 +2153,7 @@ export const CameraView: React.FC<CameraViewProps> = ({
 
 
 
-          {/\* GPS \*/}
+          {/* GPS */}
 
 
 
@@ -2165,11 +2219,11 @@ export const CameraView: React.FC<CameraViewProps> = ({
 
 
 
-      {/\* =====================================================
+      {/* =====================================================
 
           CAPTURE SUCCESS
 
-      ====================================================== \*/}
+      ====================================================== */}
 
 
 
@@ -2261,11 +2315,11 @@ export const CameraView: React.FC<CameraViewProps> = ({
 
 
 
-      {/\* =====================================================
+      {/* =====================================================
 
           BOTTOM CAMERA CONTROLS
 
-      ====================================================== \*/}
+      ====================================================== */}
 
 
 
@@ -2311,11 +2365,11 @@ export const CameraView: React.FC<CameraViewProps> = ({
 
 
 
-          {/\* =================================================
+          {/* =================================================
 
               GALLERY
 
-          ================================================== \*/}
+          ================================================== */}
 
 
 
@@ -2385,7 +2439,7 @@ export const CameraView: React.FC<CameraViewProps> = ({
 
 
 
-            {/\* Gallery indicator \*/}
+            {/* Gallery indicator */}
 
 
 
@@ -2419,11 +2473,11 @@ export const CameraView: React.FC<CameraViewProps> = ({
 
 
 
-          {/\* =================================================
+          {/* =================================================
 
               CAPTURE BUTTON
 
-          ================================================== \*/}
+          ================================================== */}
 
 
 
@@ -2559,11 +2613,11 @@ export const CameraView: React.FC<CameraViewProps> = ({
 
 
 
-          {/\* =================================================
+          {/* =================================================
 
               CAMERA CONTROLS
 
-          ================================================== \*/}
+          ================================================== */}
 
 
 
@@ -2571,7 +2625,7 @@ export const CameraView: React.FC<CameraViewProps> = ({
 
 
 
-            {/\* Torch \*/}
+            {/* Torch */}
 
 
 
@@ -2633,7 +2687,7 @@ export const CameraView: React.FC<CameraViewProps> = ({
 
 
 
-            {/\* Camera switch \*/}
+            {/* Camera switch */}
 
 
 
@@ -2687,7 +2741,7 @@ export const CameraView: React.FC<CameraViewProps> = ({
 
 
 
-        {/\* Bottom helper text \*/}
+        {/* Bottom helper text */}
 
 
 
