@@ -47,6 +47,7 @@ export interface GeoPhotoMetadata {
   width: number;
   height: number;
   fileSize: number; // bytes
+  orientation?: 'portrait' | 'landscape';
   deviceOrientation?: string;
   compassDirection?: string;
   weatherTemp?: string;
@@ -62,6 +63,7 @@ export interface GeoPhoto {
   organizer?: string;
   locationName?: string;
   remarks?: string;
+  orientation?: 'portrait' | 'landscape';
   
   // Images stored as Blob in IndexedDB
   originalBlob: Blob;
