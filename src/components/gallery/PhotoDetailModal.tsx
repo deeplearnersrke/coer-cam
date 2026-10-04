@@ -123,7 +123,12 @@ export const PhotoDetailModal: React.FC<PhotoDetailModalProps> = ({
           <span className="text-xs font-mono font-bold text-amber-400 bg-amber-500/10 px-2.5 py-1 rounded-lg border border-amber-500/20">
             {photo.photoNumber}
           </span>
-          <h2 className="text-base font-bold truncate max-w-[200px] sm:max-w-xs">{photo.eventName || photo.schoolName}</h2>
+          {photo.orientation && (
+            <span className="text-[10px] font-mono font-semibold text-slate-300 bg-slate-800 px-2 py-0.5 rounded border border-slate-700 uppercase">
+              {photo.orientation}
+            </span>
+          )}
+          <h2 className="text-base font-bold truncate max-w-[180px] sm:max-w-xs">{photo.eventName || photo.schoolName}</h2>
         </div>
 
         <div className="flex items-center gap-2">
@@ -208,7 +213,7 @@ export const PhotoDetailModal: React.FC<PhotoDetailModalProps> = ({
           <div className="p-3.5 rounded-2xl bg-slate-900 border border-slate-800 space-y-1.5">
             <div className="flex items-center gap-2">
               <School className="w-4 h-4 text-blue-400" />
-              <span className="font-bold text-white text-sm">{photo.schoolName || 'Event'}</span>
+              <span className="font-bold text-white text-sm">{photo.schoolName || 'School Event'}</span>
             </div>
             {photo.eventName && <p><strong className="text-slate-400">Event:</strong> {photo.eventName}</p>}
             {photo.department && <p><strong className="text-slate-400">Department:</strong> {photo.department}</p>}

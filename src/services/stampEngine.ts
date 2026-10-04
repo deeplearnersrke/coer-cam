@@ -39,10 +39,7 @@ async function generateQrDataUrl(text: string): Promise<string | null> {
 function formatOfficialDate(timestamp: number): string {
   const d = new Date(timestamp);
   const day = String(d.getDate()).padStart(2, '0');
-  const months = [
-    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
-  ];
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   const month = months[d.getMonth()];
   const year = d.getFullYear();
   return `${day} ${month} ${year}`;
@@ -101,7 +98,7 @@ function wrapText(
 }
 
 interface StampInputData {
-  imageSrc: string;
+  imageSrc: string; // Data URL or Blob URL
   event?: SchoolEvent;
   photoNumber: string;
   location: GeoPhoto['location'];
@@ -110,6 +107,7 @@ interface StampInputData {
   settings?: AppSettings;
   customSchoolName?: string;
   customRemarks?: string;
+  orientation?: 'portrait' | 'landscape';
 }
 
 interface KeyVal {
@@ -122,11 +120,7 @@ interface KeyVal {
  */
 function drawRoundedRect(
   ctx: CanvasRenderingContext2D,
-  x: number,
-  y: number,
-  width: number,
-  height: number,
-  radius: number
+  x: number, y: number, width: number, height: number, radius: number
 ) {
   ctx.beginPath();
   ctx.moveTo(x + radius, y);
@@ -142,18 +136,10 @@ function drawRoundedRect(
 }
 
 /**
- * Core Canvas Stamp Engine with Orientation-Aware Layout
- *
- * Portrait  -> 1200 x 1600  (wide bottom panel)
- * Landscape -> 1600 x 1200  (compact right side panel)
- *
- * The source image is expected to already be pre-normalized by
- * useCamera into one of those two resolutions, but this engine
- * also handles any size by reading the actual image dimensions.
+ * Core Canvas Stamp Engine with Official Monochrome Document Layout
+ * Supports both Portrait and Landscape orientations with responsive predefined positioning
  */
-export async function generateStampedImage(
-  input: StampInputData
-): Promise<{ blob: Blob; dataUrl: string }> {
+export async function generateStampedImage(input: StampInputData): Promise<{ blob: Blob; dataUrl: string }> {
   const {
     imageSrc,
     event,
@@ -165,84 +151,57 @@ export async function generateStampedImage(
   } = input;
 
   const baseImg = await loadImage(imageSrc);
-
-  const baseW = baseImg.naturalWidth || baseImg.width;
-  const baseH = baseImg.naturalHeight || baseImg.height;
-
   const canvas = document.createElement('canvas');
-  canvas.width = baseW;
-  canvas.height = baseH;
+  canvas.width = baseImg.naturalWidth || baseImg.width || 1920;
+  canvas.height = baseImg.naturalHeight || baseImg.height || 1080;
 
   const ctx = canvas.getContext('2d');
   if (!ctx) throw new Error('Could not get canvas context');
 
-  // Draw the pre-normalized image (already rotated + cropped by useCamera)
-  ctx.drawImage(baseImg, 0, 0, baseW, baseH);
+  // Draw original photo
+  ctx.drawImage(baseImg, 0, 0, canvas.width, canvas.height);
 
-  // ── Orientation detection ──
-  const isLandscapePhoto = baseW > baseH;
+  // Detect orientation (explicit or inferred from canvas aspect ratio)
+  const isLandscape = input.orientation 
+    ? input.orientation === 'landscape' 
+    : canvas.width >= canvas.height;
 
-  // Fixed scale relative to the larger dimension so that text
-  // looks consistent across portrait and landscape outputs.
-  const scale = Math.max(baseW, baseH) / 1200;
+  // Responsive scale factor depending on image orientation and dimensions
+  const scale = isLandscape
+    ? Math.max(0.65, Math.min(2.4, canvas.width / 1600))
+    : Math.max(0.65, Math.min(2.4, canvas.width / 1080));
 
-  const pad = Math.round(20 * scale);
-  const cornerRadius = Math.round(12 * scale);
+  const pad = Math.round(18 * scale);
+  const cornerRadius = Math.round(10 * scale);
 
-  // ── Field values ──
-  const schoolName =
-    event?.schoolName ||
-    settings?.schoolName ||
-    input.customSchoolName ||
-    'INSTITUTION DOCUMENTATION';
-
+  // Field values - auto hide empty values
+  const schoolName = event?.schoolName || settings?.schoolName || input.customSchoolName || 'INSTITUTION DOCUMENTATION';
   const eventName = event?.name || '';
   const department = event?.department || '';
   const organizer = event?.organizer || '';
   const locationName = event?.locationName || '';
   const remarks = event?.remarks || input.customRemarks || '';
-
-  const logoUrl =
-    event?.logoDataUrl || settings?.logoDataUrl || '';
+  const logoUrl = event?.logoDataUrl || settings?.logoDataUrl || '';
 
   const dateStr = formatOfficialDate(timestamp);
   const timeStr = formatOfficialTime(timestamp);
 
-  const hasCoords =
-    location.latitude !== 0 || location.longitude !== 0;
-
-  const latStr = hasCoords
-    ? formatLatDegrees(location.latitude)
-    : '';
-
-  const lonStr = hasCoords
-    ? formatLonDegrees(location.longitude)
-    : '';
-
-  const accStr =
-    location.accuracy && location.accuracy < 900
-      ? `±${Math.round(location.accuracy)} m`
-      : '';
-
-  const altStr = location.altitude
-    ? `${Math.round(location.altitude)} m`
-    : '';
+  const hasCoords = location.latitude !== 0 || location.longitude !== 0;
+  const latStr = hasCoords ? formatLatDegrees(location.latitude) : '';
+  const lonStr = hasCoords ? formatLonDegrees(location.longitude) : '';
+  const accStr = location.accuracy && location.accuracy < 900 ? `±${Math.round(location.accuracy)} m` : '';
+  const altStr = location.altitude ? `${Math.round(location.altitude)} m` : '';
 
   const addr = location.address;
-  const addressLine =
-    addr?.formattedAddress ||
-    [
-      addr?.village,
-      addr?.city,
-      addr?.district,
-      addr?.state,
-      addr?.country,
-    ]
-      .filter(Boolean)
-      .join(', ') ||
-    locationName;
+  const addressLine = addr?.formattedAddress || [
+    addr?.village,
+    addr?.city,
+    addr?.district,
+    addr?.state,
+    addr?.country,
+  ].filter(Boolean).join(', ') || locationName;
 
-  // ── Key/Value items (auto-hide empty) ──
+  // Build Key-Value list (ONLY non-empty values!)
   const items: KeyVal[] = [];
 
   if (department) items.push({ label: 'Department', value: department });
@@ -252,336 +211,194 @@ export async function generateStampedImage(
   if (lonStr) items.push({ label: 'Longitude', value: lonStr });
   if (accStr) items.push({ label: 'Accuracy', value: accStr });
   if (altStr) items.push({ label: 'Altitude', value: altStr });
-
   items.push({ label: 'Date', value: dateStr });
   items.push({ label: 'Time', value: timeStr });
   items.push({ label: 'Photo ID', value: photoNumber });
-
   if (remarks) items.push({ label: 'Remarks', value: remarks });
 
-  // ── QR ──
+  // QR Code (Only if enabled in settings)
   let qrImg: HTMLImageElement | null = null;
-
-  if (stampStyle === 'gps_qr' || stampStyle === 'gps_classic') {
-    const qrText = [
-      photoNumber,
-      schoolName,
-      eventName,
-      dateStr,
-      timeStr,
-      latStr,
-      lonStr,
-    ]
-      .filter(Boolean)
-      .join(' | ');
-
+  if (settings?.showQrCode) {
+    const qrText = `ID:${photoNumber}|LAT:${location.latitude.toFixed(6)}|LON:${location.longitude.toFixed(6)}`;
     const qrData = await generateQrDataUrl(qrText);
-
     if (qrData) {
       try {
         qrImg = await loadImage(qrData);
-      } catch {
-        qrImg = null;
+      } catch (e) {
+        // ignore
       }
     }
   }
 
-  // ── Logo ──
+  // School Logo (Optional)
   let logoImg: HTMLImageElement | null = null;
-
   if (logoUrl) {
     try {
       logoImg = await loadImage(logoUrl);
-    } catch {
-      logoImg = null;
+    } catch (e) {
+      // ignore
     }
   }
 
   // ========================================================
-  // ORIENTATION-AWARE PANEL LAYOUT
+  // RENDER OFFICIAL DOCUMENT PANEL
   // ========================================================
-  //
-  // Portrait  -> wide panel at the BOTTOM
-  // Landscape -> compact panel on the RIGHT, vertically centered
 
-  const panelWidth = isLandscapePhoto
-    ? Math.min(
-        canvas.width - pad * 2,
-        Math.round(420 * scale)
-      )
-    : Math.min(
-        canvas.width - pad * 2,
-        Math.round(620 * scale)
-      );
+  // Typography definitions (SemiBold, Medium, Regular)
+  const fontHeader = `600 ${Math.round(17 * scale)}px 'Inter', -apple-system, BlinkMacSystemFont, sans-serif`;
+  const fontSubHeader = `500 ${Math.round(14 * scale)}px 'Inter', -apple-system, BlinkMacSystemFont, sans-serif`;
+  const fontLabel = `500 ${Math.round(12.5 * scale)}px 'Inter', -apple-system, BlinkMacSystemFont, sans-serif`;
+  const fontValue = `400 ${Math.round(12.5 * scale)}px 'Inter', -apple-system, BlinkMacSystemFont, sans-serif`;
 
-  const panelX = isLandscapePhoto
-    ? canvas.width - panelWidth - pad
-    : pad;
+  // Predefined Stamp Positions for Portrait vs Landscape:
+  // 1. Portrait: Bottom full-width container across the bottom of the portrait photo
+  // 2. Landscape: Bottom-left inspection card positioned in the lower-left quadrant
+  let panelWidth = 0;
+  let panelX = pad;
 
-  const effectivePad = isLandscapePhoto
-    ? Math.round(14 * scale)
-    : pad;
+  if (isLandscape) {
+    // Landscape Predefined Position: Bottom-Left Card
+    const desiredWidth = Math.round(canvas.width * 0.44);
+    const minWidth = Math.round(480 * scale);
+    panelWidth = Math.min(canvas.width - pad * 2, Math.max(minWidth, desiredWidth));
+    panelX = pad;
+  } else {
+    // Portrait Predefined Position: Bottom Full-Width Panel
+    panelWidth = canvas.width - (pad * 2);
+    panelX = pad;
+  }
 
-  // ── Typography ──
-  const headerFontSize = isLandscapePhoto ? 16 : 18;
-  const subHeaderFontSize = isLandscapePhoto ? 13 : 15;
-  const labelFontSize = isLandscapePhoto ? 11 : 13;
-  const valueFontSize = isLandscapePhoto ? 11 : 13;
-
-  const panelFontHeader = `600 ${Math.round(
-    headerFontSize * scale
-  )}px 'Inter', -apple-system, BlinkMacSystemFont, sans-serif`;
-
-  const panelFontSubHeader = `500 ${Math.round(
-    subHeaderFontSize * scale
-  )}px 'Inter', -apple-system, BlinkMacSystemFont, sans-serif`;
-
-  const panelFontLabel = `500 ${Math.round(
-    labelFontSize * scale
-  )}px 'Inter', -apple-system, BlinkMacSystemFont, sans-serif`;
-
-  const panelFontValue = `400 ${Math.round(
-    valueFontSize * scale
-  )}px 'Inter', -apple-system, BlinkMacSystemFont, sans-serif`;
-
-  // ── Measure label column ──
-  ctx.font = panelFontLabel;
-
+  // Measure max label width for vertical alignment column
+  ctx.font = fontLabel;
   let maxLabelWidth = 0;
-
   items.forEach((item) => {
     const w = ctx.measureText(`${item.label} : `).width;
     if (w > maxLabelWidth) maxLabelWidth = w;
   });
 
-  const qrReserve = qrImg
-    ? Math.round((isLandscapePhoto ? 64 : 80) * scale)
-    : 0;
-
+  const qrSpace = qrImg ? Math.round(76 * scale) : 0;
   const valueAvailWidth = Math.max(
-    Math.round(80 * scale),
-    panelWidth - effectivePad * 2 - maxLabelWidth - qrReserve
+    Math.round(140 * scale),
+    panelWidth - (pad * 2) - maxLabelWidth - qrSpace
   );
 
-  // ── Header wrapping ──
-  ctx.font = panelFontHeader;
+  // Pre-calculate lines for wrapping
+  ctx.font = fontHeader;
+  const headerLines = wrapText(ctx, schoolName, panelWidth - pad * 2 - (logoImg ? Math.round(56 * scale) : 0));
 
-  const headerLines = wrapText(
-    ctx,
-    schoolName,
-    panelWidth -
-      effectivePad * 2 -
-      (logoImg ? Math.round(50 * scale) : 0)
-  );
+  ctx.font = fontSubHeader;
+  const subHeaderLines = wrapText(ctx, eventName, panelWidth - pad * 2);
 
-  ctx.font = panelFontSubHeader;
-
-  const subHeaderLines = wrapText(
-    ctx,
-    eventName,
-    panelWidth - effectivePad * 2
-  );
-
-  // ── Process item value wrapping ──
-  ctx.font = panelFontValue;
-
-  const processedItems: {
-    label: string;
-    valLines: string[];
-  }[] = [];
-
+  // Process item lines
+  ctx.font = fontValue;
+  const processedItems: { label: string; valLines: string[] }[] = [];
   items.forEach((item) => {
     const valLines = wrapText(ctx, item.value, valueAvailWidth);
-
-    processedItems.push({
-      label: item.label,
-      valLines: valLines.length ? valLines : [''],
-    });
+    processedItems.push({ label: item.label, valLines });
   });
 
-  // ── Line heights ──
-  const headerLineH = Math.round(
-    (isLandscapePhoto ? 20 : 24) * scale
-  );
-  const subHeaderLineH = Math.round(
-    (isLandscapePhoto ? 17 : 20) * scale
-  );
-  const itemLineH = Math.round(
-    (isLandscapePhoto ? 15 : 18) * scale
-  );
-  const itemGap = Math.round(
-    (isLandscapePhoto ? 2 : 3) * scale
-  );
+  // Calculate panel height
+  const headerLineH = Math.round(23 * scale);
+  const subHeaderLineH = Math.round(19 * scale);
+  const itemLineH = Math.round(17 * scale);
 
-  // ── Calculate panel height ──
-  let totalContentH = effectivePad * 2;
-
+  let totalContentH = pad * 2; // top and bottom padding
   totalContentH += headerLines.length * headerLineH;
-
-  if (subHeaderLines.length > 0) {
-    totalContentH +=
-      subHeaderLines.length * subHeaderLineH +
-      Math.round(3 * scale);
-  }
-
-  totalContentH += Math.round(
-    (isLandscapePhoto ? 8 : 12) * scale
-  );
+  if (subHeaderLines.length > 0) totalContentH += subHeaderLines.length * subHeaderLineH + Math.round(4 * scale);
+  totalContentH += Math.round(10 * scale); // divider margin
 
   processedItems.forEach((pi) => {
-    totalContentH +=
-      Math.max(1, pi.valLines.length) * itemLineH + itemGap;
+    totalContentH += Math.max(1, pi.valLines.length) * itemLineH + Math.round(2.5 * scale);
   });
 
-  // Reserve QR space in landscape so it never overlaps text
-  const qrSize = qrImg
-    ? Math.round((isLandscapePhoto ? 58 : 72) * scale)
-    : 0;
+  // Ensure stamp stays inside bounds
+  const panelHeight = Math.min(canvas.height - pad * 2, totalContentH);
+  const panelY = Math.max(pad, canvas.height - panelHeight - pad);
 
-  if (qrImg && isLandscapePhoto) {
-    totalContentH += qrSize + Math.round(4 * scale);
-  }
-
-  const panelHeight = Math.min(
-    totalContentH,
-    canvas.height - pad * 2
-  );
-
-  // ── Position: bottom for portrait, centered for landscape ──
-  const panelY = isLandscapePhoto
-    ? Math.max(
-        pad,
-        Math.round((canvas.height - panelHeight) / 2)
-      )
-    : canvas.height - panelHeight - pad;
-
-  // ── Draw panel background ──
+  // Background Panel: Semi-transparent black 75% opacity, rounded corners
   ctx.save();
-
   ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
-
-  drawRoundedRect(
-    ctx,
-    panelX,
-    panelY,
-    panelWidth,
-    panelHeight,
-    cornerRadius
-  );
-
+  drawRoundedRect(ctx, panelX, panelY, panelWidth, panelHeight, cornerRadius);
   ctx.fill();
 
-  // ── Border ──
-  ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
+  // Subtle 1px monochrome border
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.18)';
   ctx.lineWidth = Math.max(1, Math.round(1 * scale));
   ctx.stroke();
 
-  // ── Content position ──
-  let curY =
-    panelY +
-    effectivePad +
-    Math.round((isLandscapePhoto ? 10 : 14) * scale);
+  // Content start coordinates
+  let curY = panelY + pad + Math.round(14 * scale);
+  const curX = panelX + pad;
 
-  const curX = panelX + effectivePad;
-
-  // ── Logo ──
+  // Draw Logo if available
   if (logoImg) {
-    const logoSize = Math.round(
-      (isLandscapePhoto ? 38 : 48) * scale
-    );
-
-    ctx.drawImage(
-      logoImg,
-      panelX + panelWidth - effectivePad - logoSize,
-      panelY + effectivePad,
-      logoSize,
-      logoSize
-    );
+    const logoSize = Math.round(46 * scale);
+    ctx.drawImage(logoImg, panelX + panelWidth - pad - logoSize, panelY + pad, logoSize, logoSize);
   }
 
-  // ── Heading ──
+  // Draw Heading (School / College / Institution)
   ctx.fillStyle = '#FFFFFF';
-  ctx.font = panelFontHeader;
-
+  ctx.font = fontHeader;
   headerLines.forEach((line) => {
     ctx.fillText(line, curX, curY);
     curY += headerLineH;
   });
 
-  // ── Event name ──
+  // Draw Subheading (Event Name)
   if (subHeaderLines.length > 0) {
-    ctx.fillStyle = '#E2E8F0';
-    ctx.font = panelFontSubHeader;
-
+    ctx.fillStyle = '#E2E8F0'; // Light gray
+    ctx.font = fontSubHeader;
     subHeaderLines.forEach((line) => {
       ctx.fillText(line, curX, curY);
       curY += subHeaderLineH;
     });
   }
 
-  // ── Divider ──
-  curY += Math.round((isLandscapePhoto ? 3 : 4) * scale);
-
+  // Horizontal Divider Line
+  curY += Math.round(4 * scale);
   ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
+  ctx.fillRect(curX, curY, panelWidth - pad * 2, Math.max(1, Math.round(1 * scale)));
+  curY += Math.round(11 * scale);
 
-  ctx.fillRect(
-    curX,
-    curY,
-    panelWidth - effectivePad * 2,
-    Math.max(1, Math.round(1 * scale))
-  );
-
-  curY += Math.round((isLandscapePhoto ? 8 : 12) * scale);
-
-  // ── Key/Value fields ──
+  // Draw Key-Value Pairs
   processedItems.forEach((pi) => {
+    const labelText = `${pi.label}`;
+    
+    // Label (Medium font, Light Gray)
     ctx.fillStyle = '#CBD5E1';
-    ctx.font = panelFontLabel;
-    ctx.fillText(pi.label, curX, curY);
+    ctx.font = fontLabel;
+    ctx.fillText(labelText, curX, curY);
 
-    const colonX =
-      curX + maxLabelWidth - Math.round(10 * scale);
-
+    // Colon
+    const colonX = curX + maxLabelWidth - Math.round(12 * scale);
     ctx.fillText(':', colonX, curY);
 
+    // Value (Regular font, White / Light Gray)
     const valX = curX + maxLabelWidth;
-
     ctx.fillStyle = '#FFFFFF';
-    ctx.font = panelFontValue;
+    ctx.font = fontValue;
 
-    pi.valLines.forEach((valLine, index) => {
-      ctx.fillText(valLine, valX, curY + index * itemLineH);
+    pi.valLines.forEach((valLine, idx) => {
+      ctx.fillText(valLine, valX, curY + (idx * itemLineH));
     });
 
-    curY +=
-      Math.max(1, pi.valLines.length) * itemLineH + itemGap;
+    curY += Math.max(1, pi.valLines.length) * itemLineH + Math.round(2.5 * scale);
   });
 
-  // ── QR code ──
+  // Draw QR Code on bottom right if enabled
   if (qrImg) {
-    const qrX =
-      panelX + panelWidth - effectivePad - qrSize;
-
-    const qrY =
-      panelY + panelHeight - effectivePad - qrSize;
-
-    ctx.drawImage(qrImg, qrX, qrY, qrSize, qrSize);
+    const qrSize = Math.round(68 * scale);
+    ctx.drawImage(qrImg, panelX + panelWidth - pad - qrSize, panelY + panelHeight - pad - qrSize, qrSize, qrSize);
   }
 
   ctx.restore();
 
-  // ── Output ──
+  // Output blob & dataUrl
   const quality = settings?.imageQuality || 0.95;
-
   const dataUrl = canvas.toDataURL('image/jpeg', quality);
 
   const blob = await new Promise<Blob>((resolve) => {
-    canvas.toBlob(
-      (b) =>
-        resolve(b || new Blob([], { type: 'image/jpeg' })),
-      'image/jpeg',
-      quality
-    );
+    canvas.toBlob((b) => resolve(b || new Blob()), 'image/jpeg', quality);
   });
 
   return { blob, dataUrl };
