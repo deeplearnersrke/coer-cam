@@ -1,7 +1,10 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 
-const OUTPUT_WIDTH = 1600;
-const OUTPUT_HEIGHT = 1200;
+const PORTRAIT_WIDTH = 1200;
+const PORTRAIT_HEIGHT = 1600;
+
+const LANDSCAPE_WIDTH = 1600;
+const LANDSCAPE_HEIGHT = 1200;
 
 export function useCamera() {
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -112,9 +115,7 @@ export function useCamera() {
 
   const toggleCamera = useCallback(() => {
     const nextMode =
-      facingMode === 'environment'
-        ? 'user'
-        : 'environment';
+      facingMode === 'environment' ? 'user' : 'environment';
 
     setFacingMode(nextMode);
     startStream(nextMode);
@@ -124,7 +125,6 @@ export function useCamera() {
     if (!streamRef.current || !hasTorch) return;
 
     const track = streamRef.current.getVideoTracks()[0];
-
     if (!track) return;
 
     try {
@@ -141,15 +141,14 @@ export function useCamera() {
   }, [hasTorch, torchOn]);
 
   /**
-   * Returns the current screen orientation.
-   *
-   * This is used only to normalize the captured
-   * frame into our fixed 1600x1200 output.
+   * Returns the current SCREEN orientation angle in degrees.
+   * 0   -> portrait (natural)
+   * 90  -> landscape (rotated left)
+   * 180 -> portrait (upside-down)
+   * 270 -> landscape (rotated right)
    */
   const getOrientationAngle = useCallback((): number => {
-    if (typeof window === 'undefined') {
-      return 0;
-    }
+    if (typeof window === 'undefined') return 0;
 
     let angle = 0;
 
@@ -163,30 +162,43 @@ export function useCamera() {
       typeof (window as any).orientation === 'number'
     ) {
       angle = (window as any).orientation;
-    } else if (
-      window.innerWidth > window.innerHeight
-    ) {
+    } else if (window.innerWidth > window.innerHeight) {
       angle = 90;
     }
 
     angle = ((angle % 360) + 360) % 360;
-
     return angle;
   }, []);
 
   /**
-   * Draw the camera frame into a fixed 1600x1200
-   * landscape canvas.
+   * Detects whether the DEVICE is currently being held in portrait
+   * or landscape mode.
+   */
+  const isDevicePortrait = useCallback((): boolean => {
+    if (typeof window === 'undefined') return true;
+
+    if (
+      typeof screen !== 'undefined' &&
+      screen.orientation &&
+      typeof screen.orientation.type === 'string'
+    ) {
+      return screen.orientation.type.startsWith('portrait');
+    }
+
+    return window.innerHeight >= window.innerWidth;
+  }, []);
+
+  /**
+   * Capture a frame from the camera and normalize it into a
+   * standard 1200x1600 (portrait) OR 1600x1200 (landscape) canvas.
    *
-   * The source is rotated according to the current
-   * device orientation and then center-cropped.
+   * The source sensor frame is rotated to upright orientation and
+   * then center-cropped to fill the target dimensions.
    */
   const captureFrame = useCallback((): string | null => {
     const video = videoRef.current;
 
-    if (!video || !isStreaming) {
-      return null;
-    }
+    if (!video || !isStreaming) return null;
 
     const sourceWidth = video.videoWidth;
     const sourceHeight = video.videoHeight;
@@ -197,39 +209,49 @@ export function useCamera() {
         sourceWidth,
         sourceHeight
       );
-
       return null;
     }
 
     playShutterSound();
 
     const angle = getOrientationAngle();
+    const devicePortrait = isDevicePortrait();
 
-    console.log('[FIXED CAPTURE]', {
-      angle,
-      sourceWidth,
-      sourceHeight,
-      outputWidth: OUTPUT_WIDTH,
-      outputHeight: OUTPUT_HEIGHT,
-      facingMode,
-    });
+    // Determine whether the SENSOR frame is being delivered in a
+    // rotated orientation (common on Android). If the device is
+    // portrait but the sensor frame is landscape, we must rotate.
+    let effectiveAngle = angle;
 
-    /*
-     * First create a temporary canvas representing
-     * the correctly oriented source image.
-     */
-    const rotatedCanvas = document.createElement('canvas');
+    if (
+      devicePortrait &&
+      sourceWidth > sourceHeight &&
+      (angle === 0 || angle === 180)
+    ) {
+      // Sensor is landscape but device is portrait → rotate 90°
+      effectiveAngle = 90;
+    }
+
+    if (
+      !devicePortrait &&
+      sourceHeight > sourceWidth &&
+      (angle === 0 || angle === 180)
+    ) {
+      // Sensor is portrait but device is landscape → rotate 90°
+      effectiveAngle = 90;
+    }
 
     const normalizedAngle =
-      angle === 90 ||
-      angle === 180 ||
-      angle === 270
-        ? angle
+      effectiveAngle === 90 ||
+      effectiveAngle === 180 ||
+      effectiveAngle === 270
+        ? effectiveAngle
         : 0;
 
     const swapDimensions =
-      normalizedAngle === 90 ||
-      normalizedAngle === 270;
+      normalizedAngle === 90 || normalizedAngle === 270;
+
+    // ── 1. Rotate the raw sensor frame into upright orientation ──
+    const rotatedCanvas = document.createElement('canvas');
 
     rotatedCanvas.width = swapDimensions
       ? sourceHeight
@@ -239,24 +261,14 @@ export function useCamera() {
       ? sourceWidth
       : sourceHeight;
 
-    const rotatedCtx =
-      rotatedCanvas.getContext('2d');
+    const rotatedCtx = rotatedCanvas.getContext('2d');
 
-    if (!rotatedCtx) {
-      return null;
-    }
+    if (!rotatedCtx) return null;
 
     rotatedCtx.save();
 
-    /*
-     * Rotate source pixels into normal viewing
-     * orientation.
-     */
     if (normalizedAngle === 90) {
-      rotatedCtx.translate(
-        rotatedCanvas.width,
-        0
-      );
+      rotatedCtx.translate(rotatedCanvas.width, 0);
       rotatedCtx.rotate(Math.PI / 2);
     } else if (normalizedAngle === 180) {
       rotatedCtx.translate(
@@ -265,16 +277,11 @@ export function useCamera() {
       );
       rotatedCtx.rotate(Math.PI);
     } else if (normalizedAngle === 270) {
-      rotatedCtx.translate(
-        0,
-        rotatedCanvas.height
-      );
+      rotatedCtx.translate(0, rotatedCanvas.height);
       rotatedCtx.rotate(-Math.PI / 2);
     }
 
-    /*
-     * Mirror only the front camera.
-     */
+    // Mirror only the front camera.
     if (facingMode === 'user') {
       rotatedCtx.translate(sourceWidth, 0);
       rotatedCtx.scale(-1, 1);
@@ -290,61 +297,42 @@ export function useCamera() {
 
     rotatedCtx.restore();
 
-    /*
-     * Now put the normalized image into the
-     * FIXED 1600x1200 output.
-     */
-    const outputCanvas =
-      document.createElement('canvas');
+    // ── 2. Choose final output size based on DEVICE orientation ──
+    const outputWidth = devicePortrait
+      ? PORTRAIT_WIDTH
+      : LANDSCAPE_WIDTH;
 
-    outputCanvas.width = OUTPUT_WIDTH;
-    outputCanvas.height = OUTPUT_HEIGHT;
+    const outputHeight = devicePortrait
+      ? PORTRAIT_HEIGHT
+      : LANDSCAPE_HEIGHT;
 
-    const outputCtx =
-      outputCanvas.getContext('2d');
+    const outputCanvas = document.createElement('canvas');
+    outputCanvas.width = outputWidth;
+    outputCanvas.height = outputHeight;
 
-    if (!outputCtx) {
-      return null;
-    }
+    const outputCtx = outputCanvas.getContext('2d');
+    if (!outputCtx) return null;
 
-    const normalizedWidth =
-      rotatedCanvas.width;
+    // ── 3. Center-crop the rotated frame to fill the output ──
+    const normalizedWidth = rotatedCanvas.width;
+    const normalizedHeight = rotatedCanvas.height;
 
-    const normalizedHeight =
-      rotatedCanvas.height;
-
-    const sourceAspect =
-      normalizedWidth / normalizedHeight;
-
-    const outputAspect =
-      OUTPUT_WIDTH / OUTPUT_HEIGHT;
+    const sourceAspect = normalizedWidth / normalizedHeight;
+    const outputAspect = outputWidth / outputHeight;
 
     let drawWidth: number;
     let drawHeight: number;
 
     if (sourceAspect > outputAspect) {
-      /*
-       * Source is wider.
-       * Fit height and crop left/right.
-       */
-      drawHeight = OUTPUT_HEIGHT;
-      drawWidth =
-        drawHeight * sourceAspect;
+      drawHeight = outputHeight;
+      drawWidth = drawHeight * sourceAspect;
     } else {
-      /*
-       * Source is taller.
-       * Fit width and crop top/bottom.
-       */
-      drawWidth = OUTPUT_WIDTH;
-      drawHeight =
-        drawWidth / sourceAspect;
+      drawWidth = outputWidth;
+      drawHeight = drawWidth / sourceAspect;
     }
 
-    const offsetX =
-      (OUTPUT_WIDTH - drawWidth) / 2;
-
-    const offsetY =
-      (OUTPUT_HEIGHT - drawHeight) / 2;
+    const offsetX = (outputWidth - drawWidth) / 2;
+    const offsetY = (outputHeight - drawHeight) / 2;
 
     outputCtx.drawImage(
       rotatedCanvas,
@@ -354,24 +342,21 @@ export function useCamera() {
       drawHeight
     );
 
-    const result =
-      outputCanvas.toDataURL(
-        'image/jpeg',
-        0.95
-      );
-
-    console.log('[FIXED RESULT]', {
-      width: OUTPUT_WIDTH,
-      height: OUTPUT_HEIGHT,
-      orientation: 'LANDSCAPE',
+    console.log('[CAPTURE]', {
+      angle,
+      effectiveAngle,
+      devicePortrait,
+      source: `${sourceWidth}x${sourceHeight}`,
+      output: `${outputWidth}x${outputHeight}`,
     });
 
-    return result;
+    return outputCanvas.toDataURL('image/jpeg', 0.95);
   }, [
     isStreaming,
     facingMode,
     playShutterSound,
     getOrientationAngle,
+    isDevicePortrait,
   ]);
 
   useEffect(() => {

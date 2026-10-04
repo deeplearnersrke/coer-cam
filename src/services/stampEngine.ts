@@ -1,3 +1,156 @@
+import { GeoPhoto, SchoolEvent, StampStyle, AppSettings } from '../types';
+import { headingToCardinal } from './gps';
+import QRCode from 'qrcode';
+
+/**
+ * Loads an image or DataURL into an HTMLImageElement
+ */
+function loadImage(src: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => resolve(img);
+    img.onerror = (err) => reject(err);
+    img.src = src;
+  });
+}
+
+/**
+ * Generates a QR Code as DataURL containing photo metadata
+ */
+async function generateQrDataUrl(text: string): Promise<string | null> {
+  try {
+    return await QRCode.toDataURL(text, {
+      margin: 1,
+      width: 120,
+      color: {
+        dark: '#ffffff',
+        light: '#00000000',
+      },
+    });
+  } catch (err) {
+    return null;
+  }
+}
+
+/**
+ * Formats official date: 26 Jul 2026
+ */
+function formatOfficialDate(timestamp: number): string {
+  const d = new Date(timestamp);
+  const day = String(d.getDate()).padStart(2, '0');
+  const months = [
+    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+  ];
+  const month = months[d.getMonth()];
+  const year = d.getFullYear();
+  return `${day} ${month} ${year}`;
+}
+
+/**
+ * Formats official time: 01:09:28 AM
+ */
+function formatOfficialTime(timestamp: number): string {
+  const d = new Date(timestamp);
+  let hours = d.getHours();
+  const minutes = String(d.getMinutes()).padStart(2, '0');
+  const seconds = String(d.getSeconds()).padStart(2, '0');
+  const ampm = hours >= 12 ? 'PM' : 'AM';
+  hours = hours % 12 || 12;
+  return `${String(hours).padStart(2, '0')}:${minutes}:${seconds} ${ampm}`;
+}
+
+function formatLatDegrees(lat: number): string {
+  const dir = lat >= 0 ? 'N' : 'S';
+  return `${Math.abs(lat).toFixed(6)}° ${dir}`;
+}
+
+function formatLonDegrees(lon: number): string {
+  const dir = lon >= 0 ? 'E' : 'W';
+  return `${Math.abs(lon).toFixed(6)}° ${dir}`;
+}
+
+/**
+ * Wraps text into multiple lines given a max width in pixels
+ */
+function wrapText(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  maxWidth: number
+): string[] {
+  if (!text || maxWidth <= 0) return [];
+  const words = text.trim().split(/\s+/);
+  const lines: string[] = [];
+  let currentLine = words[0] || '';
+
+  for (let i = 1; i < words.length; i++) {
+    const word = words[i];
+    const width = ctx.measureText(currentLine + ' ' + word).width;
+    if (width <= maxWidth) {
+      currentLine += ' ' + word;
+    } else {
+      lines.push(currentLine);
+      currentLine = word;
+    }
+  }
+  if (currentLine) {
+    lines.push(currentLine);
+  }
+  return lines;
+}
+
+interface StampInputData {
+  imageSrc: string;
+  event?: SchoolEvent;
+  photoNumber: string;
+  location: GeoPhoto['location'];
+  timestamp: number;
+  stampStyle: StampStyle;
+  settings?: AppSettings;
+  customSchoolName?: string;
+  customRemarks?: string;
+}
+
+interface KeyVal {
+  label: string;
+  value: string;
+}
+
+/**
+ * Helper to draw rounded rectangle on Canvas
+ */
+function drawRoundedRect(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  radius: number
+) {
+  ctx.beginPath();
+  ctx.moveTo(x + radius, y);
+  ctx.lineTo(x + width - radius, y);
+  ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
+  ctx.lineTo(x + width, y + height - radius);
+  ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
+  ctx.lineTo(x + radius, y + height);
+  ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
+  ctx.lineTo(x, y + radius);
+  ctx.quadraticCurveTo(x, y, x + radius, y);
+  ctx.closePath();
+}
+
+/**
+ * Core Canvas Stamp Engine with Orientation-Aware Layout
+ *
+ * Portrait  -> 1200 x 1600  (wide bottom panel)
+ * Landscape -> 1600 x 1200  (compact right side panel)
+ *
+ * The source image is expected to already be pre-normalized by
+ * useCamera into one of those two resolutions, but this engine
+ * also handles any size by reading the actual image dimensions.
+ */
 export async function generateStampedImage(
   input: StampInputData
 ): Promise<{ blob: Blob; dataUrl: string }> {
@@ -13,50 +166,30 @@ export async function generateStampedImage(
 
   const baseImg = await loadImage(imageSrc);
 
-  /*
-   * FIXED OUTPUT
-   *
-   * Every photo is always 1600 x 1200.
-   */
-  const OUTPUT_WIDTH = 1600;
-  const OUTPUT_HEIGHT = 1200;
+  const baseW = baseImg.naturalWidth || baseImg.width;
+  const baseH = baseImg.naturalHeight || baseImg.height;
 
   const canvas = document.createElement('canvas');
-
-  canvas.width = OUTPUT_WIDTH;
-  canvas.height = OUTPUT_HEIGHT;
+  canvas.width = baseW;
+  canvas.height = baseH;
 
   const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('Could not get canvas context');
 
-  if (!ctx) {
-    throw new Error('Could not get canvas context');
-  }
+  // Draw the pre-normalized image (already rotated + cropped by useCamera)
+  ctx.drawImage(baseImg, 0, 0, baseW, baseH);
 
-  /*
-   * Draw the already-normalized image.
-   *
-   * The image coming from useCamera is already
-   * 1600x1200, so there is no orientation logic here.
-   */
-  ctx.drawImage(
-    baseImg,
-    0,
-    0,
-    OUTPUT_WIDTH,
-    OUTPUT_HEIGHT
-  );
+  // ── Orientation detection ──
+  const isLandscapePhoto = baseW > baseH;
 
-  /*
-   * Fixed scaling.
-   */
-  const scale = OUTPUT_WIDTH / 1200;
+  // Fixed scale relative to the larger dimension so that text
+  // looks consistent across portrait and landscape outputs.
+  const scale = Math.max(baseW, baseH) / 1200;
 
   const pad = Math.round(20 * scale);
   const cornerRadius = Math.round(12 * scale);
 
-  /*
-   * Field values.
-   */
+  // ── Field values ──
   const schoolName =
     event?.schoolName ||
     settings?.schoolName ||
@@ -67,25 +200,16 @@ export async function generateStampedImage(
   const department = event?.department || '';
   const organizer = event?.organizer || '';
   const locationName = event?.locationName || '';
-  const remarks =
-    event?.remarks ||
-    input.customRemarks ||
-    '';
+  const remarks = event?.remarks || input.customRemarks || '';
 
   const logoUrl =
-    event?.logoDataUrl ||
-    settings?.logoDataUrl ||
-    '';
+    event?.logoDataUrl || settings?.logoDataUrl || '';
 
-  const dateStr =
-    formatOfficialDate(timestamp);
-
-  const timeStr =
-    formatOfficialTime(timestamp);
+  const dateStr = formatOfficialDate(timestamp);
+  const timeStr = formatOfficialTime(timestamp);
 
   const hasCoords =
-    location.latitude !== 0 ||
-    location.longitude !== 0;
+    location.latitude !== 0 || location.longitude !== 0;
 
   const latStr = hasCoords
     ? formatLatDegrees(location.latitude)
@@ -96,101 +220,46 @@ export async function generateStampedImage(
     : '';
 
   const accStr =
-    location.accuracy &&
-    location.accuracy < 900
+    location.accuracy && location.accuracy < 900
       ? `±${Math.round(location.accuracy)} m`
       : '';
 
-  const altStr =
-    location.altitude
-      ? `${Math.round(location.altitude)} m`
-      : '';
+  const altStr = location.altitude
+    ? `${Math.round(location.altitude)} m`
+    : '';
 
-  /*
-   * Build the same items your existing stamp engine uses.
-   */
-  const items: KeyVal[] = [
-    {
-      label: 'Photo No.',
-      value: photoNumber,
-    },
-    {
-      label: 'Date',
-      value: dateStr,
-    },
-    {
-      label: 'Time',
-      value: timeStr,
-    },
-    ...(department
-      ? [
-          {
-            label: 'Department',
-            value: department,
-          },
-        ]
-      : []),
-    ...(organizer
-      ? [
-          {
-            label: 'Organizer',
-            value: organizer,
-          },
-        ]
-      : []),
-    ...(locationName
-      ? [
-          {
-            label: 'Location',
-            value: locationName,
-          },
-        ]
-      : []),
-    ...(latStr
-      ? [
-          {
-            label: 'Latitude',
-            value: latStr,
-          },
-        ]
-      : []),
-    ...(lonStr
-      ? [
-          {
-            label: 'Longitude',
-            value: lonStr,
-          },
-        ]
-      : []),
-    ...(accStr
-      ? [
-          {
-            label: 'Accuracy',
-            value: accStr,
-          },
-        ]
-      : []),
-    ...(altStr
-      ? [
-          {
-            label: 'Altitude',
-            value: altStr,
-          },
-        ]
-      : []),
-    ...(remarks
-      ? [
-          {
-            label: 'Remarks',
-            value: remarks,
-          },
-        ]
-      : []),
-  ];
+  const addr = location.address;
+  const addressLine =
+    addr?.formattedAddress ||
+    [
+      addr?.village,
+      addr?.city,
+      addr?.district,
+      addr?.state,
+      addr?.country,
+    ]
+      .filter(Boolean)
+      .join(', ') ||
+    locationName;
 
-  /*
-   * QR
-   */
+  // ── Key/Value items (auto-hide empty) ──
+  const items: KeyVal[] = [];
+
+  if (department) items.push({ label: 'Department', value: department });
+  if (organizer) items.push({ label: 'Organizer', value: organizer });
+  if (addressLine) items.push({ label: 'Location', value: addressLine });
+  if (latStr) items.push({ label: 'Latitude', value: latStr });
+  if (lonStr) items.push({ label: 'Longitude', value: lonStr });
+  if (accStr) items.push({ label: 'Accuracy', value: accStr });
+  if (altStr) items.push({ label: 'Altitude', value: altStr });
+
+  items.push({ label: 'Date', value: dateStr });
+  items.push({ label: 'Time', value: timeStr });
+  items.push({ label: 'Photo ID', value: photoNumber });
+
+  if (remarks) items.push({ label: 'Remarks', value: remarks });
+
+  // ── QR ──
   let qrImg: HTMLImageElement | null = null;
 
   if (stampStyle === 'gps_qr' || stampStyle === 'gps_classic') {
@@ -206,8 +275,7 @@ export async function generateStampedImage(
       .filter(Boolean)
       .join(' | ');
 
-    const qrData =
-      await generateQrDataUrl(qrText);
+    const qrData = await generateQrDataUrl(qrText);
 
     if (qrData) {
       try {
@@ -218,9 +286,7 @@ export async function generateStampedImage(
     }
   }
 
-  /*
-   * Logo.
-   */
+  // ── Logo ──
   let logoImg: HTMLImageElement | null = null;
 
   if (logoUrl) {
@@ -231,81 +297,73 @@ export async function generateStampedImage(
     }
   }
 
-  /*
-   * --------------------------------------------------
-   * FIXED BOTTOM STAMP
-   * --------------------------------------------------
-   *
-   * There is NO landscape/portrait condition.
-   */
-  const panelWidth = Math.min(
-    canvas.width - pad * 2,
-    Math.round(620 * scale)
-  );
+  // ========================================================
+  // ORIENTATION-AWARE PANEL LAYOUT
+  // ========================================================
+  //
+  // Portrait  -> wide panel at the BOTTOM
+  // Landscape -> compact panel on the RIGHT, vertically centered
 
-  const panelX = pad;
+  const panelWidth = isLandscapePhoto
+    ? Math.min(
+        canvas.width - pad * 2,
+        Math.round(420 * scale)
+      )
+    : Math.min(
+        canvas.width - pad * 2,
+        Math.round(620 * scale)
+      );
 
-  const effectivePad = pad;
+  const panelX = isLandscapePhoto
+    ? canvas.width - panelWidth - pad
+    : pad;
 
-  const headerFontSize = 18;
-  const subHeaderFontSize = 15;
-  const labelFontSize = 13;
-  const valueFontSize = 13;
+  const effectivePad = isLandscapePhoto
+    ? Math.round(14 * scale)
+    : pad;
 
-  const panelFontHeader =
-    `600 ${Math.round(
-      headerFontSize * scale
-    )}px 'Inter', -apple-system, BlinkMacSystemFont, sans-serif`;
+  // ── Typography ──
+  const headerFontSize = isLandscapePhoto ? 16 : 18;
+  const subHeaderFontSize = isLandscapePhoto ? 13 : 15;
+  const labelFontSize = isLandscapePhoto ? 11 : 13;
+  const valueFontSize = isLandscapePhoto ? 11 : 13;
 
-  const panelFontSubHeader =
-    `500 ${Math.round(
-      subHeaderFontSize * scale
-    )}px 'Inter', -apple-system, BlinkMacSystemFont, sans-serif`;
+  const panelFontHeader = `600 ${Math.round(
+    headerFontSize * scale
+  )}px 'Inter', -apple-system, BlinkMacSystemFont, sans-serif`;
 
-  const panelFontLabel =
-    `500 ${Math.round(
-      labelFontSize * scale
-    )}px 'Inter', -apple-system, BlinkMacSystemFont, sans-serif`;
+  const panelFontSubHeader = `500 ${Math.round(
+    subHeaderFontSize * scale
+  )}px 'Inter', -apple-system, BlinkMacSystemFont, sans-serif`;
 
-  const panelFontValue =
-    `400 ${Math.round(
-      valueFontSize * scale
-    )}px 'Inter', -apple-system, BlinkMacSystemFont, sans-serif`;
+  const panelFontLabel = `500 ${Math.round(
+    labelFontSize * scale
+  )}px 'Inter', -apple-system, BlinkMacSystemFont, sans-serif`;
 
-  /*
-   * Label width.
-   */
+  const panelFontValue = `400 ${Math.round(
+    valueFontSize * scale
+  )}px 'Inter', -apple-system, BlinkMacSystemFont, sans-serif`;
+
+  // ── Measure label column ──
   ctx.font = panelFontLabel;
 
   let maxLabelWidth = 0;
 
-  items.forEach(item => {
-    const width =
-      ctx.measureText(
-        `${item.label} : `
-      ).width;
-
-    if (width > maxLabelWidth) {
-      maxLabelWidth = width;
-    }
+  items.forEach((item) => {
+    const w = ctx.measureText(`${item.label} : `).width;
+    if (w > maxLabelWidth) maxLabelWidth = w;
   });
 
   const qrReserve = qrImg
-    ? Math.round(80 * scale)
+    ? Math.round((isLandscapePhoto ? 64 : 80) * scale)
     : 0;
 
-  const valueAvailWidth =
-    Math.max(
-      Math.round(80 * scale),
-      panelWidth -
-        effectivePad * 2 -
-        maxLabelWidth -
-        qrReserve
-    );
+  const valueAvailWidth = Math.max(
+    Math.round(80 * scale),
+    panelWidth - effectivePad * 2 - maxLabelWidth - qrReserve
+  );
 
-  /*
-   * Header wrapping.
-   */
+  // ── Header wrapping ──
   ctx.font = panelFontHeader;
 
   const headerLines = wrapText(
@@ -313,26 +371,18 @@ export async function generateStampedImage(
     schoolName,
     panelWidth -
       effectivePad * 2 -
-      (logoImg
-        ? Math.round(50 * scale)
-        : 0)
+      (logoImg ? Math.round(50 * scale) : 0)
   );
 
-  /*
-   * Event name.
-   */
   ctx.font = panelFontSubHeader;
 
   const subHeaderLines = wrapText(
     ctx,
     eventName,
-    panelWidth -
-      effectivePad * 2
+    panelWidth - effectivePad * 2
   );
 
-  /*
-   * Process values.
-   */
+  // ── Process item value wrapping ──
   ctx.font = panelFontValue;
 
   const processedItems: {
@@ -340,74 +390,56 @@ export async function generateStampedImage(
     valLines: string[];
   }[] = [];
 
-  items.forEach(item => {
-    const valLines = wrapText(
-      ctx,
-      item.value,
-      valueAvailWidth
-    );
+  items.forEach((item) => {
+    const valLines = wrapText(ctx, item.value, valueAvailWidth);
 
     processedItems.push({
       label: item.label,
-      valLines: valLines.length
-        ? valLines
-        : [''],
+      valLines: valLines.length ? valLines : [''],
     });
   });
 
-  /*
-   * Fixed typography.
-   */
-  const headerLineH =
-    Math.round(24 * scale);
+  // ── Line heights ──
+  const headerLineH = Math.round(
+    (isLandscapePhoto ? 20 : 24) * scale
+  );
+  const subHeaderLineH = Math.round(
+    (isLandscapePhoto ? 17 : 20) * scale
+  );
+  const itemLineH = Math.round(
+    (isLandscapePhoto ? 15 : 18) * scale
+  );
+  const itemGap = Math.round(
+    (isLandscapePhoto ? 2 : 3) * scale
+  );
 
-  const subHeaderLineH =
-    Math.round(20 * scale);
+  // ── Calculate panel height ──
+  let totalContentH = effectivePad * 2;
 
-  const itemLineH =
-    Math.round(18 * scale);
-
-  const itemGap =
-    Math.round(3 * scale);
-
-  /*
-   * Calculate panel height.
-   */
-  let totalContentH =
-    effectivePad * 2;
-
-  totalContentH +=
-    headerLines.length *
-    headerLineH;
+  totalContentH += headerLines.length * headerLineH;
 
   if (subHeaderLines.length > 0) {
     totalContentH +=
-      subHeaderLines.length *
-        subHeaderLineH +
+      subHeaderLines.length * subHeaderLineH +
       Math.round(3 * scale);
   }
 
-  totalContentH +=
-    Math.round(12 * scale);
+  totalContentH += Math.round(
+    (isLandscapePhoto ? 8 : 12) * scale
+  );
 
-  processedItems.forEach(pi => {
+  processedItems.forEach((pi) => {
     totalContentH +=
-      Math.max(
-        1,
-        pi.valLines.length
-      ) *
-        itemLineH +
-      itemGap;
+      Math.max(1, pi.valLines.length) * itemLineH + itemGap;
   });
 
+  // Reserve QR space in landscape so it never overlaps text
   const qrSize = qrImg
-    ? Math.round(72 * scale)
+    ? Math.round((isLandscapePhoto ? 58 : 72) * scale)
     : 0;
 
-  if (qrImg) {
-    totalContentH +=
-      qrSize +
-      Math.round(4 * scale);
+  if (qrImg && isLandscapePhoto) {
+    totalContentH += qrSize + Math.round(4 * scale);
   }
 
   const panelHeight = Math.min(
@@ -415,21 +447,18 @@ export async function generateStampedImage(
     canvas.height - pad * 2
   );
 
-  /*
-   * ALWAYS BOTTOM.
-   */
-  const panelY =
-    canvas.height -
-    panelHeight -
-    pad;
+  // ── Position: bottom for portrait, centered for landscape ──
+  const panelY = isLandscapePhoto
+    ? Math.max(
+        pad,
+        Math.round((canvas.height - panelHeight) / 2)
+      )
+    : canvas.height - panelHeight - pad;
 
-  /*
-   * Panel background.
-   */
+  // ── Draw panel background ──
   ctx.save();
 
-  ctx.fillStyle =
-    'rgba(0, 0, 0, 0.75)';
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
 
   drawRoundedRect(
     ctx,
@@ -442,221 +471,118 @@ export async function generateStampedImage(
 
   ctx.fill();
 
-  /*
-   * Border.
-   */
-  ctx.strokeStyle =
-    'rgba(255, 255, 255, 0.15)';
-
-  ctx.lineWidth =
-    Math.max(
-      1,
-      Math.round(1 * scale)
-    );
-
+  // ── Border ──
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
+  ctx.lineWidth = Math.max(1, Math.round(1 * scale));
   ctx.stroke();
 
-  /*
-   * Content position.
-   */
+  // ── Content position ──
   let curY =
     panelY +
     effectivePad +
-    Math.round(14 * scale);
+    Math.round((isLandscapePhoto ? 10 : 14) * scale);
 
-  const curX =
-    panelX + effectivePad;
+  const curX = panelX + effectivePad;
 
-  /*
-   * Logo.
-   */
+  // ── Logo ──
   if (logoImg) {
-    const logoSize =
-      Math.round(48 * scale);
+    const logoSize = Math.round(
+      (isLandscapePhoto ? 38 : 48) * scale
+    );
 
     ctx.drawImage(
       logoImg,
-      panelX +
-        panelWidth -
-        effectivePad -
-        logoSize,
-      panelY +
-        effectivePad,
+      panelX + panelWidth - effectivePad - logoSize,
+      panelY + effectivePad,
       logoSize,
       logoSize
     );
   }
 
-  /*
-   * Heading.
-   */
+  // ── Heading ──
   ctx.fillStyle = '#FFFFFF';
   ctx.font = panelFontHeader;
 
-  headerLines.forEach(line => {
-    ctx.fillText(
-      line,
-      curX,
-      curY
-    );
-
+  headerLines.forEach((line) => {
+    ctx.fillText(line, curX, curY);
     curY += headerLineH;
   });
 
-  /*
-   * Event name.
-   */
+  // ── Event name ──
   if (subHeaderLines.length > 0) {
     ctx.fillStyle = '#E2E8F0';
     ctx.font = panelFontSubHeader;
 
-    subHeaderLines.forEach(line => {
-      ctx.fillText(
-        line,
-        curX,
-        curY
-      );
-
-      curY +=
-        subHeaderLineH;
+    subHeaderLines.forEach((line) => {
+      ctx.fillText(line, curX, curY);
+      curY += subHeaderLineH;
     });
   }
 
-  /*
-   * Divider.
-   */
-  curY +=
-    Math.round(4 * scale);
+  // ── Divider ──
+  curY += Math.round((isLandscapePhoto ? 3 : 4) * scale);
 
-  ctx.fillStyle =
-    'rgba(255, 255, 255, 0.2)';
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
 
   ctx.fillRect(
     curX,
     curY,
-    panelWidth -
-      effectivePad * 2,
-    Math.max(
-      1,
-      Math.round(1 * scale)
-    )
+    panelWidth - effectivePad * 2,
+    Math.max(1, Math.round(1 * scale))
   );
 
-  curY +=
-    Math.round(12 * scale);
+  curY += Math.round((isLandscapePhoto ? 8 : 12) * scale);
 
-  /*
-   * Key/value fields.
-   */
-  processedItems.forEach(pi => {
-    const labelText =
-      pi.label;
-
+  // ── Key/Value fields ──
+  processedItems.forEach((pi) => {
     ctx.fillStyle = '#CBD5E1';
     ctx.font = panelFontLabel;
-
-    ctx.fillText(
-      labelText,
-      curX,
-      curY
-    );
+    ctx.fillText(pi.label, curX, curY);
 
     const colonX =
-      curX +
-      maxLabelWidth -
-      Math.round(10 * scale);
+      curX + maxLabelWidth - Math.round(10 * scale);
 
-    ctx.fillText(
-      ':',
-      colonX,
-      curY
-    );
+    ctx.fillText(':', colonX, curY);
 
-    const valX =
-      curX + maxLabelWidth;
+    const valX = curX + maxLabelWidth;
 
     ctx.fillStyle = '#FFFFFF';
     ctx.font = panelFontValue;
 
-    pi.valLines.forEach(
-      (valLine, index) => {
-        ctx.fillText(
-          valLine,
-          valX,
-          curY +
-            index * itemLineH
-        );
-      }
-    );
+    pi.valLines.forEach((valLine, index) => {
+      ctx.fillText(valLine, valX, curY + index * itemLineH);
+    });
 
     curY +=
-      Math.max(
-        1,
-        pi.valLines.length
-      ) *
-        itemLineH +
-      itemGap;
+      Math.max(1, pi.valLines.length) * itemLineH + itemGap;
   });
 
-  /*
-   * QR code.
-   */
+  // ── QR code ──
   if (qrImg) {
     const qrX =
-      panelX +
-      panelWidth -
-      effectivePad -
-      qrSize;
+      panelX + panelWidth - effectivePad - qrSize;
 
     const qrY =
-      panelY +
-      panelHeight -
-      effectivePad -
-      qrSize;
+      panelY + panelHeight - effectivePad - qrSize;
 
-    ctx.drawImage(
-      qrImg,
-      qrX,
-      qrY,
-      qrSize,
-      qrSize
-    );
+    ctx.drawImage(qrImg, qrX, qrY, qrSize, qrSize);
   }
 
   ctx.restore();
 
-  /*
-   * Final output remains 1600x1200.
-   */
-  const quality =
-    settings?.imageQuality || 0.95;
+  // ── Output ──
+  const quality = settings?.imageQuality || 0.95;
 
-  const dataUrl =
-    canvas.toDataURL(
+  const dataUrl = canvas.toDataURL('image/jpeg', quality);
+
+  const blob = await new Promise<Blob>((resolve) => {
+    canvas.toBlob(
+      (b) =>
+        resolve(b || new Blob([], { type: 'image/jpeg' })),
       'image/jpeg',
       quality
     );
+  });
 
-  const blob =
-    await new Promise<Blob>(resolve => {
-      canvas.toBlob(
-        b =>
-          resolve(
-            b ||
-              new Blob(
-                [],
-                {
-                  type: 'image/jpeg',
-                }
-              )
-          ),
-        'image/jpeg',
-        quality
-      );
-    });
-
-  return {
-    blob,
-    dataUrl,
-  };
+  return { blob, dataUrl };
 }
