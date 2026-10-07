@@ -1,4 +1,10 @@
-import { GeoPhoto, SchoolEvent, StampStyle, AppSettings } from '../types';
+import {
+  GeoPhoto,
+  SchoolEvent,
+  StampStyle,
+  AppSettings,
+} from '../types';
+
 import { headingToCardinal } from './gps';
 import QRCode from 'qrcode';
 
@@ -38,10 +44,27 @@ async function generateQrDataUrl(text: string): Promise<string | null> {
  */
 function formatOfficialDate(timestamp: number): string {
   const d = new Date(timestamp);
+
   const day = String(d.getDate()).padStart(2, '0');
-  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+  const months = [
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
+  ];
+
   const month = months[d.getMonth()];
   const year = d.getFullYear();
+
   return `${day} ${month} ${year}`;
 }
 
@@ -50,11 +73,16 @@ function formatOfficialDate(timestamp: number): string {
  */
 function formatOfficialTime(timestamp: number): string {
   const d = new Date(timestamp);
+
   let hours = d.getHours();
+
   const minutes = String(d.getMinutes()).padStart(2, '0');
   const seconds = String(d.getSeconds()).padStart(2, '0');
+
   const ampm = hours >= 12 ? 'PM' : 'AM';
+
   hours = hours % 12 || 12;
+
   return `${String(hours).padStart(2, '0')}:${minutes}:${seconds} ${ampm}`;
 }
 
@@ -68,33 +96,138 @@ function formatLonDegrees(lon: number): string {
   return `${Math.abs(lon).toFixed(6)}° ${dir}`;
 }
 
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
+
+function truncateToWidth(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  maxWidth: number
+): string {
+  if (!text) return '';
+
+  if (ctx.measureText(text).width <= maxWidth) {
+    return text;
+  }
+
+  let result = text;
+
+  while (
+    result.length > 1 &&
+    ctx.measureText(`${result}…`).width > maxWidth
+  ) {
+    result = result.slice(0, -1);
+  }
+
+  return `${result}…`;
+}
+
 /**
- * Wraps text into multiple lines given a max width in pixels
+ * Wraps text into multiple lines given a max width in pixels.
+ * Optionally limits total lines and adds ellipsis.
  */
 function wrapText(
   ctx: CanvasRenderingContext2D,
   text: string,
-  maxWidth: number
+  maxWidth: number,
+  maxLines = 0
 ): string[] {
   if (!text || maxWidth <= 0) return [];
-  const words = text.trim().split(/\s+/);
-  const lines: string[] = [];
-  let currentLine = words[0] || '';
 
-  for (let i = 1; i < words.length; i++) {
-    const word = words[i];
-    const width = ctx.measureText(currentLine + ' ' + word).width;
-    if (width <= maxWidth) {
-      currentLine += ' ' + word;
+  const words = String(text)
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+
+  if (words.length === 0) return [];
+
+  const lines: string[] = [];
+  let currentLine = '';
+
+  for (const word of words) {
+    // If a single word is too wide, break it by characters
+    if (ctx.measureText(word).width > maxWidth) {
+      if (currentLine) {
+        lines.push(currentLine);
+        currentLine = '';
+      }
+
+      let chunk = '';
+
+      for (let i = 0; i < word.length; i++) {
+        const char = word[i];
+
+        if (ctx.measureText(chunk + char).width <= maxWidth) {
+          chunk += char;
+        } else {
+          if (chunk) lines.push(chunk);
+          chunk = char;
+        }
+      }
+
+      currentLine = chunk;
+      continue;
+    }
+
+    const testLine = currentLine
+      ? `${currentLine} ${word}`
+      : word;
+
+    if (ctx.measureText(testLine).width <= maxWidth) {
+      currentLine = testLine;
     } else {
-      lines.push(currentLine);
+      if (currentLine) lines.push(currentLine);
       currentLine = word;
     }
   }
+
   if (currentLine) {
     lines.push(currentLine);
   }
+
+  if (maxLines > 0 && lines.length > maxLines) {
+    const trimmed = lines.slice(0, maxLines);
+
+    trimmed[maxLines - 1] = truncateToWidth(
+      ctx,
+      `${trimmed[maxLines - 1]} …`,
+      maxWidth
+    );
+
+    return trimmed;
+  }
+
   return lines;
+}
+
+/**
+ * Helper to draw rounded rectangle on Canvas
+ */
+function drawRoundedRect(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  radius: number
+) {
+  ctx.beginPath();
+  ctx.moveTo(x + radius, y);
+  ctx.lineTo(x + width - radius, y);
+  ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
+  ctx.lineTo(x + width, y + height - radius);
+  ctx.quadraticCurveTo(
+    x + width,
+    y + height,
+    x + width - radius,
+    y + height
+  );
+  ctx.lineTo(x + radius, y + height);
+  ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
+  ctx.lineTo(x, y + radius);
+  ctx.quadraticCurveTo(x, y, x + radius, y);
+  ctx.closePath();
 }
 
 interface StampInputData {
@@ -116,30 +249,22 @@ interface KeyVal {
 }
 
 /**
- * Helper to draw rounded rectangle on Canvas
- */
-function drawRoundedRect(
-  ctx: CanvasRenderingContext2D,
-  x: number, y: number, width: number, height: number, radius: number
-) {
-  ctx.beginPath();
-  ctx.moveTo(x + radius, y);
-  ctx.lineTo(x + width - radius, y);
-  ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
-  ctx.lineTo(x + width, y + height - radius);
-  ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
-  ctx.lineTo(x + radius, y + height);
-  ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
-  ctx.lineTo(x, y + radius);
-  ctx.quadraticCurveTo(x, y, x + radius, y);
-  ctx.closePath();
-}
-
-/**
  * Core Canvas Stamp Engine with Official Monochrome Document Layout
- * Supports both Portrait and Landscape orientations with responsive predefined positioning
+ *
+ * Supports both Portrait and Landscape orientations:
+ *
+ * Portrait:
+ * - bottom full-width stamp panel
+ * - single-column information layout
+ *
+ * Landscape:
+ * - wider bottom-left / bottom-area stamp panel
+ * - optional 2-column information layout when space allows
+ * - auto-shrinks to prevent overflow
  */
-export async function generateStampedImage(input: StampInputData): Promise<{ blob: Blob; dataUrl: string }> {
+export async function generateStampedImage(
+  input: StampInputData
+): Promise<{ blob: Blob; dataUrl: string }> {
   const {
     imageSrc,
     event,
@@ -151,31 +276,43 @@ export async function generateStampedImage(input: StampInputData): Promise<{ blo
   } = input;
 
   const baseImg = await loadImage(imageSrc);
+
   const canvas = document.createElement('canvas');
-  canvas.width = baseImg.naturalWidth || baseImg.width || 1920;
-  canvas.height = baseImg.naturalHeight || baseImg.height || 1080;
+
+  canvas.width =
+    baseImg.naturalWidth || baseImg.width || 1920;
+
+  canvas.height =
+    baseImg.naturalHeight || baseImg.height || 1080;
+
+  if (canvas.width <= 0 || canvas.height <= 0) {
+    throw new Error('Invalid image dimensions');
+  }
 
   const ctx = canvas.getContext('2d');
-  if (!ctx) throw new Error('Could not get canvas context');
+
+  if (!ctx) {
+    throw new Error('Could not get canvas context');
+  }
+
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
 
   // Draw original photo
   ctx.drawImage(baseImg, 0, 0, canvas.width, canvas.height);
 
   // Detect orientation (explicit or inferred from canvas aspect ratio)
-  const isLandscape = input.orientation 
-    ? input.orientation === 'landscape' 
+  const isLandscape = input.orientation
+    ? input.orientation === 'landscape'
     : canvas.width >= canvas.height;
 
-  // Responsive scale factor depending on image orientation and dimensions
-  const scale = isLandscape
-    ? Math.max(0.65, Math.min(2.4, canvas.width / 1600))
-    : Math.max(0.65, Math.min(2.4, canvas.width / 1080));
+  // Field values
+  const schoolName =
+    event?.schoolName ||
+    settings?.schoolName ||
+    input.customSchoolName ||
+    'INSTITUTION DOCUMENTATION';
 
-  const pad = Math.round(18 * scale);
-  const cornerRadius = Math.round(10 * scale);
-
-  // Field values - auto hide empty values
-  const schoolName = event?.schoolName || settings?.schoolName || input.customSchoolName || 'INSTITUTION DOCUMENTATION';
   const eventName = event?.name || '';
   const department = event?.department || '';
   const organizer = event?.organizer || '';
@@ -186,41 +323,105 @@ export async function generateStampedImage(input: StampInputData): Promise<{ blo
   const dateStr = formatOfficialDate(timestamp);
   const timeStr = formatOfficialTime(timestamp);
 
-  const hasCoords = location.latitude !== 0 || location.longitude !== 0;
-  const latStr = hasCoords ? formatLatDegrees(location.latitude) : '';
-  const lonStr = hasCoords ? formatLonDegrees(location.longitude) : '';
-  const accStr = location.accuracy && location.accuracy < 900 ? `±${Math.round(location.accuracy)} m` : '';
-  const altStr = location.altitude ? `${Math.round(location.altitude)} m` : '';
+  const hasCoords =
+    location.latitude !== 0 || location.longitude !== 0;
+
+  const latStr = hasCoords
+    ? formatLatDegrees(location.latitude)
+    : '';
+
+  const lonStr = hasCoords
+    ? formatLonDegrees(location.longitude)
+    : '';
+
+  const accStr =
+    typeof location.accuracy === 'number' &&
+    location.accuracy > 0 &&
+    location.accuracy < 900
+      ? `±${Math.round(location.accuracy)} m`
+      : '';
+
+  const altStr =
+    location.altitude !== null &&
+    location.altitude !== undefined
+      ? `${Math.round(location.altitude)} m`
+      : '';
+
+  const directionStr =
+    settings?.showCompass &&
+    typeof location.heading === 'number' &&
+    !Number.isNaN(location.heading)
+      ? headingToCardinal(location.heading)
+      : '';
 
   const addr = location.address;
-  const addressLine = addr?.formattedAddress || [
-    addr?.village,
-    addr?.city,
-    addr?.district,
-    addr?.state,
-    addr?.country,
-  ].filter(Boolean).join(', ') || locationName;
+
+  const addressLine =
+    addr?.formattedAddress ||
+    [
+      addr?.village,
+      addr?.city,
+      addr?.district,
+      addr?.state,
+      addr?.country,
+    ]
+      .filter(Boolean)
+      .join(', ') ||
+    locationName;
 
   // Build Key-Value list (ONLY non-empty values!)
   const items: KeyVal[] = [];
 
-  if (department) items.push({ label: 'Department', value: department });
-  if (organizer) items.push({ label: 'Organizer', value: organizer });
-  if (addressLine) items.push({ label: 'Location', value: addressLine });
-  if (latStr) items.push({ label: 'Latitude', value: latStr });
-  if (lonStr) items.push({ label: 'Longitude', value: lonStr });
-  if (accStr) items.push({ label: 'Accuracy', value: accStr });
-  if (altStr) items.push({ label: 'Altitude', value: altStr });
+  if (department) {
+    items.push({ label: 'Department', value: department });
+  }
+
+  if (organizer) {
+    items.push({ label: 'Organizer', value: organizer });
+  }
+
+  if (addressLine) {
+    items.push({ label: 'Location', value: addressLine });
+  }
+
+  if (latStr) {
+    items.push({ label: 'Latitude', value: latStr });
+  }
+
+  if (lonStr) {
+    items.push({ label: 'Longitude', value: lonStr });
+  }
+
+  if (accStr) {
+    items.push({ label: 'Accuracy', value: accStr });
+  }
+
+  if (altStr) {
+    items.push({ label: 'Altitude', value: altStr });
+  }
+
+  if (directionStr) {
+    items.push({ label: 'Direction', value: directionStr });
+  }
+
   items.push({ label: 'Date', value: dateStr });
   items.push({ label: 'Time', value: timeStr });
   items.push({ label: 'Photo ID', value: photoNumber });
-  if (remarks) items.push({ label: 'Remarks', value: remarks });
+
+  if (remarks) {
+    items.push({ label: 'Remarks', value: remarks });
+  }
 
   // QR Code (Only if enabled in settings)
   let qrImg: HTMLImageElement | null = null;
+
   if (settings?.showQrCode) {
-    const qrText = `ID:${photoNumber}|LAT:${location.latitude.toFixed(6)}|LON:${location.longitude.toFixed(6)}`;
+    const qrText = `ID:${photoNumber}|LAT:${location.latitude.toFixed(
+      6
+    )}|LON:${location.longitude.toFixed(6)}`;
+
     const qrData = await generateQrDataUrl(qrText);
+
     if (qrData) {
       try {
         qrImg = await loadImage(qrData);
@@ -232,6 +433,7 @@ export async function generateStampedImage(input: StampInputData): Promise<{ blo
 
   // School Logo (Optional)
   let logoImg: HTMLImageElement | null = null;
+
   if (logoUrl) {
     try {
       logoImg = await loadImage(logoUrl);
@@ -240,165 +442,499 @@ export async function generateStampedImage(input: StampInputData): Promise<{ blo
     }
   }
 
+  const customFont = settings?.defaultFont?.trim();
+
+  const fontFamily = customFont
+    ? `${customFont}, Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif`
+    : `Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif`;
+
+  const styleOpacity =
+    stampStyle === 'minimal'
+      ? 0.58
+      : stampStyle === 'modern_glass'
+      ? 0.62
+      : stampStyle === 'gov_inspection'
+      ? 0.82
+      : 0.76;
+
+  const panelOpacity =
+    typeof settings?.watermarkOpacity === 'number'
+      ? clamp(settings.watermarkOpacity, 0.35, 0.92)
+      : styleOpacity;
+
+  // Responsive scale factor depending on image orientation and dimensions
+  const referenceWidth = isLandscape ? 1600 : 1080;
+
+  let scale = clamp(canvas.width / referenceWidth, 0.75, 2.0);
+
+  const maxPanelHeightRatio = isLandscape ? 0.68 : 0.50;
+
+  const createLayout = (s: number) => {
+    const pad = Math.round(18 * s);
+    const cornerRadius = Math.round(10 * s);
+    const panelX = pad;
+
+    const availableCanvasWidth = canvas.width - pad * 2;
+
+    let panelWidth: number;
+
+    if (isLandscape) {
+      // Landscape: wider card, but still controlled
+      const desired = Math.round(
+        canvas.width * (qrImg ? 0.46 : 0.56)
+      );
+
+      const min = Math.round(520 * s);
+
+      panelWidth = Math.min(
+        availableCanvasWidth,
+        Math.max(min, desired)
+      );
+    } else {
+      // Portrait: bottom full-width panel
+      panelWidth = availableCanvasWidth;
+    }
+
+    // Typography definitions
+    const fontHeader = `600 ${Math.round(17 * s)}px ${fontFamily}`;
+    const fontSubHeader = `500 ${Math.round(14 * s)}px ${fontFamily}`;
+    const fontLabel = `500 ${Math.round(12.5 * s)}px ${fontFamily}`;
+    const fontValue = `400 ${Math.round(12.5 * s)}px ${fontFamily}`;
+
+    const headerLineH = Math.round(23 * s);
+    const subHeaderLineH = Math.round(19 * s);
+    const itemLineH = Math.round(17 * s);
+    const itemGap = Math.round(3 * s);
+
+    const colonOffset = Math.round(4 * s);
+    const valueGap = Math.round(10 * s);
+    const colGap = Math.round(24 * s);
+
+    const logoSize = logoImg ? Math.round(46 * s) : 0;
+    const qrSize = qrImg ? Math.round(68 * s) : 0;
+
+    // Measure max label width for vertical alignment column
+    ctx.font = fontLabel;
+
+    let maxLabelWidth = 0;
+
+    items.forEach((item) => {
+      const w = ctx.measureText(item.label).width;
+
+      if (w > maxLabelWidth) {
+        maxLabelWidth = w;
+      }
+    });
+
+    const labelColumnWidth =
+      maxLabelWidth + colonOffset + valueGap;
+
+    const innerWidth = panelWidth - pad * 2;
+
+    // Use 2 columns only for landscape and only when QR is not enabled
+    const columns =
+      !qrImg &&
+      isLandscape &&
+      innerWidth >= Math.round(720 * s)
+        ? 2
+        : 1;
+
+    const columnWidth =
+      columns === 2
+        ? Math.floor((innerWidth - colGap) / 2)
+        : innerWidth;
+
+    const qrReserveWidth = qrImg
+      ? qrSize + Math.round(16 * s)
+      : 0;
+
+    let valueWidth =
+      columnWidth -
+      labelColumnWidth -
+      (columns === 1 ? qrReserveWidth : 0);
+
+    valueWidth = Math.max(
+      Math.round(120 * s),
+      valueWidth
+    );
+
+    const valueMaxLines = columns === 2 ? 2 : 3;
+
+    // Pre-calculate header lines
+    ctx.font = fontHeader;
+
+    const headerAvailableWidth = Math.max(
+      Math.round(120 * s),
+      innerWidth -
+        (logoImg ? logoSize + Math.round(12 * s) : 0)
+    );
+
+    const headerLines = wrapText(
+      ctx,
+      schoolName,
+      headerAvailableWidth,
+      2
+    );
+
+    ctx.font = fontSubHeader;
+
+    const subHeaderLines = wrapText(
+      ctx,
+      eventName,
+      innerWidth,
+      2
+    );
+
+    // Process item lines
+    ctx.font = fontValue;
+
+    const processed = items.map((item) => {
+      const valueLines = wrapText(
+        ctx,
+        item.value,
+        valueWidth,
+        valueMaxLines
+      );
+
+      const lineCount = Math.max(1, valueLines.length);
+
+      return {
+        label: item.label,
+        valueLines,
+        blockHeight: lineCount * itemLineH + itemGap,
+      };
+    });
+
+    const headerHeight =
+      headerLines.length * headerLineH;
+
+    const subHeaderHeight =
+      subHeaderLines.length > 0
+        ? subHeaderLines.length * subHeaderLineH +
+          Math.round(4 * s)
+        : 0;
+
+    const dividerSpace = Math.round(15 * s);
+
+    let columnsData: {
+      items: typeof processed;
+      height: number;
+    }[];
+
+    const totalItemHeight = processed.reduce(
+      (sum, item) => sum + item.blockHeight,
+      0
+    );
+
+    if (columns === 1) {
+      columnsData = [
+        {
+          items: processed,
+          height: totalItemHeight,
+        },
+      ];
+    } else {
+      // Split sequentially into two columns to preserve reading order
+      let acc = 0;
+      let splitIndex = processed.length;
+
+      for (let i = 0; i < processed.length; i++) {
+        acc += processed[i].blockHeight;
+
+        if (acc >= totalItemHeight / 2) {
+          splitIndex = i + 1;
+          break;
+        }
+      }
+
+      const left = processed.slice(0, splitIndex);
+      const right = processed.slice(splitIndex);
+
+      const leftHeight = left.reduce(
+        (sum, item) => sum + item.blockHeight,
+        0
+      );
+
+      const rightHeight = right.reduce(
+        (sum, item) => sum + item.blockHeight,
+        0
+      );
+
+      columnsData = [
+        { items: left, height: leftHeight },
+        { items: right, height: rightHeight },
+      ];
+    }
+
+    const maxColumnHeight = columnsData.reduce(
+      (max, col) => Math.max(max, col.height),
+      0
+    );
+
+    const qrReserveHeight = qrImg
+      ? qrSize + Math.round(12 * s)
+      : 0;
+
+    const contentHeight =
+      headerHeight +
+      subHeaderHeight +
+      dividerSpace +
+      maxColumnHeight +
+      qrReserveHeight;
+
+    const naturalPanelHeight = pad * 2 + contentHeight;
+
+    const maximumAllowedHeight = Math.min(
+      canvas.height - pad * 2,
+      Math.round(canvas.height * maxPanelHeightRatio)
+    );
+
+    const panelHeight = Math.min(
+      naturalPanelHeight,
+      canvas.height - pad * 2
+    );
+
+    const panelY = Math.max(
+      pad,
+      canvas.height - panelHeight - pad
+    );
+
+    const fits =
+      naturalPanelHeight <= maximumAllowedHeight;
+
+    return {
+      scale: s,
+      pad,
+      cornerRadius,
+      panelX,
+      panelY,
+      panelWidth,
+      panelHeight,
+      columns,
+      columnWidth,
+      colGap,
+      maxLabelWidth,
+      colonOffset,
+      valueGap,
+      labelColumnWidth,
+      valueWidth,
+      headerLines,
+      subHeaderLines,
+      columnsData,
+      logoSize,
+      qrSize,
+      fontHeader,
+      fontSubHeader,
+      fontLabel,
+      fontValue,
+      headerLineH,
+      subHeaderLineH,
+      itemLineH,
+      itemGap,
+      fits,
+    };
+  };
+
+  let layout = createLayout(scale);
+
+  // Auto-shrink stamp until it fits nicely
+  let guard = 0;
+
+  while (
+    !layout.fits &&
+    scale > 0.62 &&
+    guard < 16
+  ) {
+    scale = Math.max(0.62, scale * 0.9);
+    layout = createLayout(scale);
+    guard += 1;
+  }
+
+  const s = layout.scale;
+
   // ========================================================
   // RENDER OFFICIAL DOCUMENT PANEL
   // ========================================================
 
-  // Typography definitions (SemiBold, Medium, Regular)
-  const fontHeader = `600 ${Math.round(17 * scale)}px 'Inter', -apple-system, BlinkMacSystemFont, sans-serif`;
-  const fontSubHeader = `500 ${Math.round(14 * scale)}px 'Inter', -apple-system, BlinkMacSystemFont, sans-serif`;
-  const fontLabel = `500 ${Math.round(12.5 * scale)}px 'Inter', -apple-system, BlinkMacSystemFont, sans-serif`;
-  const fontValue = `400 ${Math.round(12.5 * scale)}px 'Inter', -apple-system, BlinkMacSystemFont, sans-serif`;
+  ctx.save();
 
-  // Predefined Stamp Positions for Portrait vs Landscape:
-  // 1. Portrait: Bottom full-width container across the bottom of the portrait photo
-  // 2. Landscape: Bottom-left inspection card positioned in the lower-left quadrant
-  let panelWidth = 0;
-  let panelX = pad;
-
-  if (isLandscape) {
-    // Landscape Predefined Position: Bottom-Left Card
-    const desiredWidth = Math.round(canvas.width * 0.44);
-    const minWidth = Math.round(480 * scale);
-    panelWidth = Math.min(canvas.width - pad * 2, Math.max(minWidth, desiredWidth));
-    panelX = pad;
-  } else {
-    // Portrait Predefined Position: Bottom Full-Width Panel
-    panelWidth = canvas.width - (pad * 2);
-    panelX = pad;
-  }
-
-  // Measure max label width for vertical alignment column
-  ctx.font = fontLabel;
-  let maxLabelWidth = 0;
-  items.forEach((item) => {
-    const w = ctx.measureText(`${item.label} : `).width;
-    if (w > maxLabelWidth) maxLabelWidth = w;
-  });
-
-  const qrSpace = qrImg ? Math.round(76 * scale) : 0;
-  const valueAvailWidth = Math.max(
-    Math.round(140 * scale),
-    panelWidth - (pad * 2) - maxLabelWidth - qrSpace
+  drawRoundedRect(
+    ctx,
+    layout.panelX,
+    layout.panelY,
+    layout.panelWidth,
+    layout.panelHeight,
+    layout.cornerRadius
   );
 
-  // Pre-calculate lines for wrapping
-  ctx.font = fontHeader;
-  const headerLines = wrapText(ctx, schoolName, panelWidth - pad * 2 - (logoImg ? Math.round(56 * scale) : 0));
-
-  ctx.font = fontSubHeader;
-  const subHeaderLines = wrapText(ctx, eventName, panelWidth - pad * 2);
-
-  // Process item lines
-  ctx.font = fontValue;
-  const processedItems: { label: string; valLines: string[] }[] = [];
-  items.forEach((item) => {
-    const valLines = wrapText(ctx, item.value, valueAvailWidth);
-    processedItems.push({ label: item.label, valLines });
-  });
-
-  // Calculate panel height
-  const headerLineH = Math.round(23 * scale);
-  const subHeaderLineH = Math.round(19 * scale);
-  const itemLineH = Math.round(17 * scale);
-
-  let totalContentH = pad * 2; // top and bottom padding
-  totalContentH += headerLines.length * headerLineH;
-  if (subHeaderLines.length > 0) totalContentH += subHeaderLines.length * subHeaderLineH + Math.round(4 * scale);
-  totalContentH += Math.round(10 * scale); // divider margin
-
-  processedItems.forEach((pi) => {
-    totalContentH += Math.max(1, pi.valLines.length) * itemLineH + Math.round(2.5 * scale);
-  });
-
-  // Ensure stamp stays inside bounds
-  const panelHeight = Math.min(canvas.height - pad * 2, totalContentH);
-  const panelY = Math.max(pad, canvas.height - panelHeight - pad);
-
-  // Background Panel: Semi-transparent black 75% opacity, rounded corners
-  ctx.save();
-  ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
-  drawRoundedRect(ctx, panelX, panelY, panelWidth, panelHeight, cornerRadius);
+  ctx.fillStyle = `rgba(0, 0, 0, ${panelOpacity})`;
   ctx.fill();
 
-  // Subtle 1px monochrome border
-  ctx.strokeStyle = 'rgba(255, 255, 255, 0.18)';
-  ctx.lineWidth = Math.max(1, Math.round(1 * scale));
-  ctx.stroke();
+  // Clip content inside rounded panel
+  ctx.clip();
 
-  // Content start coordinates
-  let curY = panelY + pad + Math.round(14 * scale);
-  const curX = panelX + pad;
+  let curY =
+    layout.panelY +
+    layout.pad +
+    Math.round(14 * s);
+
+  const curX = layout.panelX + layout.pad;
 
   // Draw Logo if available
-  if (logoImg) {
-    const logoSize = Math.round(46 * scale);
-    ctx.drawImage(logoImg, panelX + panelWidth - pad - logoSize, panelY + pad, logoSize, logoSize);
+  if (logoImg && layout.logoSize > 0) {
+    ctx.drawImage(
+      logoImg,
+      layout.panelX +
+        layout.panelWidth -
+        layout.pad -
+        layout.logoSize,
+      layout.panelY + layout.pad,
+      layout.logoSize,
+      layout.logoSize
+    );
   }
 
-  // Draw Heading (School / College / Institution)
+  // Draw Heading
   ctx.fillStyle = '#FFFFFF';
-  ctx.font = fontHeader;
-  headerLines.forEach((line) => {
+  ctx.font = layout.fontHeader;
+
+  layout.headerLines.forEach((line) => {
     ctx.fillText(line, curX, curY);
-    curY += headerLineH;
+    curY += layout.headerLineH;
   });
 
-  // Draw Subheading (Event Name)
-  if (subHeaderLines.length > 0) {
-    ctx.fillStyle = '#E2E8F0'; // Light gray
-    ctx.font = fontSubHeader;
-    subHeaderLines.forEach((line) => {
+  // Draw Subheading
+  if (layout.subHeaderLines.length > 0) {
+    ctx.fillStyle = '#E2E8F0';
+    ctx.font = layout.fontSubHeader;
+
+    layout.subHeaderLines.forEach((line) => {
       ctx.fillText(line, curX, curY);
-      curY += subHeaderLineH;
+      curY += layout.subHeaderLineH;
     });
+
+    curY += Math.round(4 * s);
   }
 
   // Horizontal Divider Line
-  curY += Math.round(4 * scale);
+  curY += Math.round(4 * s);
+
   ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
-  ctx.fillRect(curX, curY, panelWidth - pad * 2, Math.max(1, Math.round(1 * scale)));
-  curY += Math.round(11 * scale);
 
-  // Draw Key-Value Pairs
-  processedItems.forEach((pi) => {
-    const labelText = `${pi.label}`;
-    
-    // Label (Medium font, Light Gray)
-    ctx.fillStyle = '#CBD5E1';
-    ctx.font = fontLabel;
-    ctx.fillText(labelText, curX, curY);
+  ctx.fillRect(
+    curX,
+    curY,
+    layout.panelWidth - layout.pad * 2,
+    Math.max(1, Math.round(1 * s))
+  );
 
-    // Colon
-    const colonX = curX + maxLabelWidth - Math.round(12 * scale);
-    ctx.fillText(':', colonX, curY);
+  curY += Math.round(11 * s);
 
-    // Value (Regular font, White / Light Gray)
-    const valX = curX + maxLabelWidth;
-    ctx.fillStyle = '#FFFFFF';
-    ctx.font = fontValue;
+  const contentStartY = curY;
 
-    pi.valLines.forEach((valLine, idx) => {
-      ctx.fillText(valLine, valX, curY + (idx * itemLineH));
+  // Draw Key-Value Columns
+  layout.columnsData.forEach((column, columnIndex) => {
+    const x =
+      layout.panelX +
+      layout.pad +
+      columnIndex *
+        (layout.columnWidth + layout.colGap);
+
+    let y = contentStartY;
+
+    column.items.forEach((item) => {
+      // Label
+      ctx.fillStyle = '#CBD5E1';
+      ctx.font = layout.fontLabel;
+
+      ctx.fillText(item.label, x, y);
+
+      // Colon
+      const colonX =
+        x + layout.maxLabelWidth + layout.colonOffset;
+
+      ctx.fillText(':', colonX, y);
+
+      // Value
+      const valueX = x + layout.labelColumnWidth;
+
+      ctx.fillStyle = '#FFFFFF';
+      ctx.font = layout.fontValue;
+
+      item.valueLines.forEach((line, lineIndex) => {
+        ctx.fillText(
+          line,
+          valueX,
+          y + lineIndex * layout.itemLineH
+        );
+      });
+
+      y += item.blockHeight;
     });
-
-    curY += Math.max(1, pi.valLines.length) * itemLineH + Math.round(2.5 * scale);
   });
 
   // Draw QR Code on bottom right if enabled
-  if (qrImg) {
-    const qrSize = Math.round(68 * scale);
-    ctx.drawImage(qrImg, panelX + panelWidth - pad - qrSize, panelY + panelHeight - pad - qrSize, qrSize, qrSize);
+  if (qrImg && layout.qrSize > 0) {
+    ctx.drawImage(
+      qrImg,
+      layout.panelX +
+        layout.panelWidth -
+        layout.pad -
+        layout.qrSize,
+      layout.panelY +
+        layout.panelHeight -
+        layout.pad -
+        layout.qrSize,
+      layout.qrSize,
+      layout.qrSize
+    );
   }
 
   ctx.restore();
 
+  // Subtle 1px monochrome border
+  ctx.save();
+
+  drawRoundedRect(
+    ctx,
+    layout.panelX,
+    layout.panelY,
+    layout.panelWidth,
+    layout.panelHeight,
+    layout.cornerRadius
+  );
+
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.18)';
+  ctx.lineWidth = Math.max(1, Math.round(1 * s));
+  ctx.stroke();
+
+  ctx.restore();
+
   // Output blob & dataUrl
-  const quality = settings?.imageQuality || 0.95;
+  const exportQualityMap: Record<string, number> = {
+    high: 0.95,
+    medium: 0.86,
+    compact: 0.76,
+  };
+
+  const fallbackQuality = settings?.exportQuality
+    ? exportQualityMap[settings.exportQuality] ?? 0.92
+    : 0.92;
+
+  const quality = clamp(
+    settings?.imageQuality ?? fallbackQuality,
+    0.5,
+    1
+  );
+
   const dataUrl = canvas.toDataURL('image/jpeg', quality);
 
   const blob = await new Promise<Blob>((resolve) => {
-    canvas.toBlob((b) => resolve(b || new Blob()), 'image/jpeg', quality);
+    canvas.toBlob(
+      (b) => resolve(b || new Blob()),
+      'image/jpeg',
+      quality
+    );
   });
 
   return { blob, dataUrl };

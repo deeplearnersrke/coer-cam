@@ -1,4 +1,4 @@
-export type StampStyle = 
+export type StampStyle =
   | 'gps_classic'
   | 'gov_inspection'
   | 'modern_glass'
@@ -64,15 +64,15 @@ export interface GeoPhoto {
   locationName?: string;
   remarks?: string;
   orientation?: 'portrait' | 'landscape';
-  
+
   // Images stored as Blob in IndexedDB
   originalBlob: Blob;
   stampedBlob: Blob;
-  
+
   // Data URLs generated dynamically for UI preview
   originalDataUrl?: string;
   stampedDataUrl?: string;
-  
+
   photoNumber: string;
   location: GeoLocationData;
   timestamp: number;
