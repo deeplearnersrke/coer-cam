@@ -1,10 +1,9 @@
 {
-  "id": "/coer-cam/",
+  "id": "https://deeplearnersrke.github.io/coer-cam/",
   "short_name": "GeoCamera",
   "name": "D-Cam",
-  "description": "Capture, GeoTag, Stamp, and Document events completely offline.",
-  "start_url": "/coer-cam/",
-  "scope": "/coer-cam/",
+  "start_url": "https://deeplearnersrke.github.io/coer-cam/",
+  "scope": "https://deeplearnersrke.github.io/coer-cam/",
   "display": "standalone",
   "orientation": "portrait",
   "background_color": "#0f172a",
