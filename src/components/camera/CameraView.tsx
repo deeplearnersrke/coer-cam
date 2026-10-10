@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-export default function OrientationChecker() {
+export const CameraView = () => {
   const getOrientation = () =>
     window.matchMedia("(orientation: landscape)").matches
       ? "Landscape"
@@ -9,27 +9,23 @@ export default function OrientationChecker() {
   const [orientation, setOrientation] = useState(getOrientation);
 
   useEffect(() => {
-    const mediaQuery = window.matchMedia("(orientation: landscape)");
+    const query = window.matchMedia("(orientation: landscape)");
 
-    const updateOrientation = () => {
-      setOrientation(getOrientation());
-    };
+    const update = () => setOrientation(getOrientation());
 
-    mediaQuery.addEventListener("change", updateOrientation);
-    window.addEventListener("resize", updateOrientation);
-    window.addEventListener("orientationchange", updateOrientation);
+    query.addEventListener("change", update);
+    window.addEventListener("resize", update);
 
     return () => {
-      mediaQuery.removeEventListener("change", updateOrientation);
-      window.removeEventListener("resize", updateOrientation);
-      window.removeEventListener("orientationchange", updateOrientation);
+      query.removeEventListener("change", update);
+      window.removeEventListener("resize", update);
     };
   }, []);
 
   return (
-    <div>
+    <div className="p-4 text-white">
       <h2>Mobile Orientation</h2>
       <p>Current Orientation: {orientation}</p>
     </div>
   );
-}
+};
