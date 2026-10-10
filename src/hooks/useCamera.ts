@@ -17,33 +17,32 @@ export function useCamera() {
   const [torchOn, setTorchOn] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Play shutter feedback sound using Web Audio API (100% offline, pure synthesized)
+  // Play a short, synthesized shutter sound. No external audio file is needed.
   const playShutterSound = useCallback(() => {
     try {
       const AudioContextClass =
         window.AudioContext || (window as any).webkitAudioContext;
-
       if (!AudioContextClass) return;
 
-      const ctx = new AudioContextClass();
-
+      const ctx: AudioContext = new AudioContextClass();
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
 
       osc.type = 'sine';
       osc.frequency.setValueAtTime(800, ctx.currentTime);
       osc.frequency.exponentialRampToValueAtTime(200, ctx.currentTime + 0.08);
-
       gain.gain.setValueAtTime(0.3, ctx.currentTime);
       gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.08);
 
       osc.connect(gain);
       gain.connect(ctx.destination);
-
       osc.start(ctx.currentTime);
       osc.stop(ctx.currentTime + 0.08);
-    } catch (e) {
-      // Audio playback quiet fallback
+      osc.onended = () => {
+        void ctx.close().catch(() => undefined);
+      };
+    } catch {
+      // Shutter sound is optional; capture should still work if audio is unavailable.
     }
   }, []);
 
@@ -51,6 +50,10 @@ export function useCamera() {
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((track) => track.stop());
       streamRef.current = null;
+    }
+
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
     }
 
     setIsStreaming(false);
@@ -64,6 +67,10 @@ export function useCamera() {
       setError(null);
 
       try {
+        if (!navigator.mediaDevices?.getUserMedia) {
+          throw new Error('Camera access is not supported by this browser. Use HTTPS and a supported browser.');
+        }
+
         const constraints: MediaStreamConstraints = {
           audio: false,
           video: {
@@ -77,33 +84,28 @@ export function useCamera() {
         const stream = await navigator.mediaDevices.getUserMedia(constraints);
         streamRef.current = stream;
 
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          videoRef.current.muted = true;
-          videoRef.current.setAttribute('playsinline', '');
-
-          await videoRef.current.play();
+        const video = videoRef.current;
+        if (!video) {
+          stream.getTracks().forEach((track) => track.stop());
+          streamRef.current = null;
+          throw new Error('Camera preview is not ready. Please reopen camera mode.');
         }
 
+        video.srcObject = stream;
+        video.muted = true;
+        video.playsInline = true;
+        video.setAttribute('playsinline', '');
+        await video.play();
         setIsStreaming(true);
 
         const track = stream.getVideoTracks()[0];
-
         if (track && 'getCapabilities' in track) {
           const capabilities = (track as any).getCapabilities();
-
-          if (capabilities?.torch) {
-            setHasTorch(true);
-          }
+          setHasTorch(Boolean(capabilities?.torch));
         }
       } catch (err: any) {
         console.error('Camera stream error:', err);
-
-        setError(
-          err?.message ||
-            'Unable to access camera. Please check permissions.'
-        );
-
+        setError(err?.message || 'Unable to access camera. Please check camera permissions.');
         setIsStreaming(false);
       }
     },
@@ -111,27 +113,19 @@ export function useCamera() {
   );
 
   const toggleCamera = useCallback(() => {
-    const nextMode =
-      facingMode === 'environment' ? 'user' : 'environment';
-
+    const nextMode = facingMode === 'environment' ? 'user' : 'environment';
     setFacingMode(nextMode);
-    startStream(nextMode);
+    void startStream(nextMode);
   }, [facingMode, startStream]);
 
   const toggleTorch = useCallback(async () => {
     if (!streamRef.current || !hasTorch) return;
-
     const track = streamRef.current.getVideoTracks()[0];
-
     if (!track) return;
 
     try {
       const nextState = !torchOn;
-
-      await (track as any).applyConstraints({
-        advanced: [{ torch: nextState }],
-      });
-
+      await (track as any).applyConstraints({ advanced: [{ torch: nextState }] });
       setTorchOn(nextState);
     } catch (e) {
       console.error('Failed to toggle torch:', e);
@@ -139,88 +133,138 @@ export function useCamera() {
   }, [hasTorch, torchOn]);
 
   /**
-   * Captures a camera frame with predictable, fixed image structure
-   * for both portrait and landscape orientation.
+   * Captures a frame in the requested output orientation. If the camera's
+   * source dimensions have the opposite orientation, the source is rotated
+   * before cropping so the resulting image is upright rather than sideways.
    *
-   * Portrait output: 1080 x 1440
-   * Landscape output: 1920 x 1080
+   * Output sizes: portrait 1080 x 1440; landscape 1920 x 1080.
    */
   const captureFrame = useCallback(
-    (
-      targetOrientation?: 'portrait' | 'landscape'
-    ): CapturedFrameResult | null => {
+    (targetOrientation?: 'portrait' | 'landscape'): CapturedFrameResult | null => {
       const video = videoRef.current;
-
       if (!video || !isStreaming) return null;
 
-      const vWidth = video.videoWidth;
-      const vHeight = video.videoHeight;
-
-      // Ensure video has real frame data before capturing
-      if (!vWidth || !vHeight || video.readyState < 2) {
+      const sourceWidth = video.videoWidth;
+      const sourceHeight = video.videoHeight;
+      if (!sourceWidth || !sourceHeight || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
         return null;
       }
 
       playShutterSound();
 
-      const isPortrait = targetOrientation
-        ? targetOrientation === 'portrait'
-        : vHeight > vWidth;
-
-      const orientation: 'portrait' | 'landscape' = isPortrait
-        ? 'portrait'
-        : 'landscape';
-
-      const targetWidth = isPortrait ? 1080 : 1920;
-      const targetHeight = isPortrait ? 1440 : 1080;
+      // The caller's stable device-orientation decision takes precedence.
+      // Without one, infer orientation from the actual camera frame dimensions.
+      const orientation: 'portrait' | 'landscape' =
+        targetOrientation ?? (sourceWidth >= sourceHeight ? 'landscape' : 'portrait');
+      const targetWidth = orientation === 'landscape' ? 1920 : 1080;
+      const targetHeight = orientation === 'landscape' ? 1080 : 1440;
 
       const canvas = document.createElement('canvas');
       canvas.width = targetWidth;
       canvas.height = targetHeight;
-
       const ctx = canvas.getContext('2d');
-
       if (!ctx) return null;
 
       ctx.imageSmoothingEnabled = true;
       ctx.imageSmoothingQuality = 'high';
 
-      // Handle front camera mirror
-      if (facingMode === 'user') {
-        ctx.translate(canvas.width, 0);
-        ctx.scale(-1, 1);
-      }
+      // Rotate the source only when its dimensions conflict with the requested
+      // output orientation. This avoids drawing a portrait source into a
+      // landscape canvas (or vice versa) without first correcting its axes.
+      const sourceIsLandscape = sourceWidth >= sourceHeight;
+      const targetIsLandscape = orientation === 'landscape';
+      const rotateSource = sourceIsLandscape !== targetIsLandscape;
 
-      // Center crop / fit video into target frame with no distortion
+      // After rotation, these are the dimensions used for aspect-ratio cropping.
+      const orientedWidth = rotateSource ? sourceHeight : sourceWidth;
+      const orientedHeight = rotateSource ? sourceWidth : sourceHeight;
       const targetAspect = targetWidth / targetHeight;
-      const videoAspect = vWidth / vHeight;
+      const sourceAspect = orientedWidth / orientedHeight;
 
       let sx = 0;
       let sy = 0;
-      let sWidth = vWidth;
-      let sHeight = vHeight;
+      let sWidth = orientedWidth;
+      let sHeight = orientedHeight;
 
-      if (videoAspect > targetAspect) {
-        // Video is wider than target frame: crop horizontal excess
-        sWidth = vHeight * targetAspect;
-        sx = (vWidth - sWidth) / 2;
-      } else {
-        // Video is taller than target frame: crop vertical excess
-        sHeight = vWidth / targetAspect;
-        sy = (vHeight - sHeight) / 2;
+      if (sourceAspect > targetAspect) {
+        sWidth = orientedHeight * targetAspect;
+        sx = (orientedWidth - sWidth) / 2;
+      } else if (sourceAspect < targetAspect) {
+        sHeight = orientedWidth / targetAspect;
+        sy = (orientedHeight - sHeight) / 2;
       }
 
-      ctx.drawImage(
-        video,
-        sx,
-        sy,
-        sWidth,
-        sHeight,
-        0,
-        0,
-        targetWidth,
-        targetHeight
-      );
+      ctx.save();
+      if (rotateSource) {
+        // Rotate clockwise when changing landscape source to portrait output;
+        // rotate counter-clockwise for portrait source to landscape output.
+        if (sourceIsLandscape) {
+          ctx.translate(targetWidth, 0);
+          ctx.rotate(Math.PI / 2);
+        } else {
+          ctx.translate(0, targetHeight);
+          ctx.rotate(-Math.PI / 2);
+        }
+      }
+
+      // Mirror only the front-facing camera, and do so after orientation setup.
+      // Use a separate transform so mirroring never changes the crop dimensions.
+      if (facingMode === 'user') {
+        ctx.translate(targetWidth, 0);
+        ctx.scale(-1, 1);
+      }
+
+      // Draw the camera frame. The transformed source is clipped to the output canvas.
+      // For matching source/output orientation this is a normal center crop.
+      if (!rotateSource) {
+        ctx.drawImage(
+          video,
+          sx,
+          sy,
+          sWidth,
+          sHeight,
+          0,
+          0,
+          targetWidth,
+          targetHeight
+        );
+      } else {
+        // A rotated source needs its own temporary canvas so crop coordinates
+        // are applied to the already-rotated pixels, not to the original axes.
+        ctx.restore();
+        const rotatedCanvas = document.createElement('canvas');
+        rotatedCanvas.width = orientedWidth;
+        rotatedCanvas.height = orientedHeight;
+        const rotatedCtx = rotatedCanvas.getContext('2d');
+        if (!rotatedCtx) return null;
+
+        if (sourceIsLandscape) {
+          rotatedCtx.translate(orientedWidth, 0);
+          rotatedCtx.rotate(Math.PI / 2);
+        } else {
+          rotatedCtx.translate(0, orientedHeight);
+          rotatedCtx.rotate(-Math.PI / 2);
+        }
+        rotatedCtx.drawImage(video, 0, 0, sourceWidth, sourceHeight);
+
+        ctx.save();
+        if (facingMode === 'user') {
+          ctx.translate(targetWidth, 0);
+          ctx.scale(-1, 1);
+        }
+        ctx.drawImage(
+          rotatedCanvas,
+          sx,
+          sy,
+          sWidth,
+          sHeight,
+          0,
+          0,
+          targetWidth,
+          targetHeight
+        );
+      }
+      ctx.restore();
 
       return {
         dataUrl: canvas.toDataURL('image/jpeg', 0.95),
@@ -232,7 +276,7 @@ export function useCamera() {
     [isStreaming, facingMode, playShutterSound]
   );
 
-  // Keep latest callbacks in refs so mount effect does not depend on them
+  // Keep latest callbacks in refs so the mount effect can clean up correctly.
   const startStreamRef = useRef(startStream);
   const stopStreamRef = useRef(stopStream);
 
@@ -242,8 +286,7 @@ export function useCamera() {
   }, [startStream, stopStream]);
 
   useEffect(() => {
-    startStreamRef.current();
-
+    void startStreamRef.current();
     return () => {
       stopStreamRef.current();
     };
