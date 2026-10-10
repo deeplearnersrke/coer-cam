@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 
 import {
 
@@ -32,6 +32,7 @@ import {
 
 import { useCamera } from '../../hooks/useCamera';
 
+import { useGps } from '../../hooks/useGps';
 
 import { useEventContext } from '../../contexts/EventContext';
 
@@ -39,7 +40,7 @@ import { generateStampedImage } from '../../services/stampEngine';
 
 import { getNextPhotoNumber, db } from '../../services/db';
 
-import { GeoLocationData, GeoPhoto, StampStyle } from '../../types';
+import { GeoPhoto, StampStyle } from '../../types';
 
 import { reverseGeocode } from '../../services/gps';
 
@@ -56,9 +57,6 @@ interface CameraViewProps {
   ) => void;
 
   isOnline?: boolean;
-  /** Shared app-level GPS state; keeps camera from creating a second watcher. */
-  location: GeoLocationData | null;
-  isGpsSearching: boolean;
 
 }
 
@@ -96,6 +94,19 @@ function getDeviceOrientation(): OrientationMode {
 
     : 'portrait';
 
+}
+
+function getDeviceRotationAngle(): number {
+  if (typeof window === 'undefined') return 0;
+  const screenAngle = window.screen?.orientation?.angle;
+  if (typeof screenAngle === 'number' && Number.isFinite(screenAngle)) {
+    return ((screenAngle % 360) + 360) % 360;
+  }
+  const legacyAngle = (window as Window & { orientation?: number }).orientation;
+  if (typeof legacyAngle === 'number' && Number.isFinite(legacyAngle)) {
+    return ((legacyAngle % 360) + 360) % 360;
+  }
+  return window.innerWidth > window.innerHeight ? 90 : 0;
 }
 
 function normalizeOrientation(value: unknown): OrientationMode {
@@ -188,11 +199,11 @@ const StampField: React.FC<{
 
     >
 
-      <span className="font-medium text-slate-300">{label}</span>
+      <span className="font-medium text-slate-600">{label}</span>
 
       <span>:</span>
 
-      <span className={`text-white ${valueClassName}`}>{value}</span>
+      <span className={`text-slate-900 ${valueClassName}`}>{value}</span>
 
     </div>
 
@@ -201,11 +212,13 @@ const StampField: React.FC<{
 };
 
 export const CameraView: React.FC<CameraViewProps> = ({
+
   setActiveTab,
+
   showToast,
+
   isOnline = true,
-  location,
-  isGpsSearching,
+
 }) => {
 
   const {
@@ -240,7 +253,15 @@ export const CameraView: React.FC<CameraViewProps> = ({
 
   } = useEventContext();
 
-const stampStyle = useMemo<StampStyle>(
+  const {
+
+    location,
+
+    isSearching: isGpsSearching,
+
+  } = useGps(settings.gpsHighAccuracy);
+
+  const stampStyle = useMemo<StampStyle>(
 
     () =>
 
@@ -256,41 +277,9 @@ const stampStyle = useMemo<StampStyle>(
 
   // =========================================================
 
-  // =========================================================
-
-  // ORIENTATION STATE + TIMESTAMPED FIFO SENSOR HISTORY
+  // ORIENTATION STATE
 
   // =========================================================
-
-  type OrientationSample = {
-
-    time: number;
-
-    beta: number;
-
-    gamma: number;
-
-  };
-
-  const HISTORY_WINDOW_MS = 2000;
-
-  const LANDSCAPE_ENTER_ANGLE = 60;
-
-  const PORTRAIT_ENTER_ANGLE = 30;
-
-  const MIN_STABLE_DURATION_MS = 500;
-
-  const orientationHistoryRef = useRef<OrientationSample[]>([]);
-
-  const orientationRef = useRef<OrientationMode>(getDeviceOrientation());
-
-  const candidateRef = useRef<{
-
-    orientation: OrientationMode;
-
-    since: number;
-
-  } | null>(null);
 
   const [orientation, setOrientation] = useState<OrientationMode>(
 
@@ -299,6 +288,7 @@ const stampStyle = useMemo<StampStyle>(
   );
 
   const [autoRotate, setAutoRotate] = useState(true);
+  const [rotationAngle, setRotationAngle] = useState(0);
 
   const isPortrait = orientation === 'portrait';
 
@@ -318,60 +308,6 @@ const stampStyle = useMemo<StampStyle>(
 
   const [batteryLevel, setBatteryLevel] = useState<number | null>(null);
 
-  // Remove old samples and infer orientation from the recent history.
-
-  const getRecentOrientation = (
-
-    now: number = Date.now()
-
-  ): OrientationMode => {
-
-    const history = orientationHistoryRef.current;
-
-    while (
-
-      history.length > 0 &&
-
-      now - history[0].time > HISTORY_WINDOW_MS
-
-    ) {
-
-      history.shift();
-
-    }
-
-    if (history.length === 0) return orientationRef.current;
-
-    // Use the most recent samples, not a single potentially noisy reading.
-
-    const recent = history.slice(-10);
-
-    const gammaValues = recent.map((sample) => Math.abs(sample.gamma));
-
-    const averageGamma =
-
-      gammaValues.reduce((sum, value) => sum + value, 0) /
-
-      gammaValues.length;
-
-    if (orientationRef.current === 'portrait') {
-
-      return averageGamma >= LANDSCAPE_ENTER_ANGLE
-
-        ? 'landscape'
-
-        : 'portrait';
-
-    }
-
-    return averageGamma <= PORTRAIT_ENTER_ANGLE
-
-      ? 'portrait'
-
-      : 'landscape';
-
-  };
-
   // =========================================================
 
   // AUTOMATIC ORIENTATION DETECTION
@@ -379,166 +315,127 @@ const stampStyle = useMemo<StampStyle>(
   // =========================================================
 
   useEffect(() => {
+    let resizeTimer: number | undefined;
 
-    if (!autoRotate) return;
-
-    const handleDeviceOrientation = (event: DeviceOrientationEvent) => {
-
-      if (event.beta === null || event.gamma === null) return;
-
-      const now = Date.now();
-
-      const history = orientationHistoryRef.current;
-
-      history.push({
-
-        time: now,
-
-        beta: event.beta,
-
-        gamma: event.gamma,
-
-      });
-
-      // FIFO cleanup: keep only the latest two seconds.
-
-      while (
-
-        history.length > 0 &&
-
-        now - history[0].time > HISTORY_WINDOW_MS
-
-      ) {
-
-        history.shift();
-
+    const syncOrientation = () => {
+      const angle = getDeviceRotationAngle();
+      setRotationAngle((prev) => (prev === angle ? prev : angle));
+      if (autoRotate) {
+        const next = getDeviceOrientation();
+        setOrientation((prev) => (prev === next ? prev : next));
       }
+    };
 
-      const gamma = Math.abs(event.gamma);
+    const syncOrientationDelayed = () => {
 
-      const current = orientationRef.current;
+      window.clearTimeout(resizeTimer);
 
-      // Hysteresis prevents frequent switching around one threshold.
-
-      const target: OrientationMode | null =
-
-        current === 'portrait'
-
-          ? gamma >= LANDSCAPE_ENTER_ANGLE
-
-            ? 'landscape'
-
-            : null
-
-          : gamma <= PORTRAIT_ENTER_ANGLE
-
-            ? 'portrait'
-
-            : null;
-
-      if (!target) {
-
-        candidateRef.current = null;
-
-        return;
-
-      }
-
-      if (candidateRef.current?.orientation !== target) {
-
-        candidateRef.current = { orientation: target, since: now };
-
-        return;
-
-      }
-
-      if (
-
-        now - candidateRef.current.since < MIN_STABLE_DURATION_MS
-
-      ) {
-
-        return;
-
-      }
-
-      // Require enough recent samples to support the change.
-
-      const recent = history.filter(
-
-        (sample) => now - sample.time <= 1000
-
-      );
-
-      const targetSamples = recent.filter((sample) =>
-
-        target === 'landscape'
-
-          ? Math.abs(sample.gamma) >= LANDSCAPE_ENTER_ANGLE
-
-          : Math.abs(sample.gamma) <= PORTRAIT_ENTER_ANGLE
-
-      );
-
-      if (
-
-        recent.length >= 3 &&
-
-        targetSamples.length / recent.length >= 0.65
-
-      ) {
-
-        orientationRef.current = target;
-
-        setOrientation(target);
-
-        candidateRef.current = null;
-
-      }
+      resizeTimer = window.setTimeout(syncOrientation, 100);
 
     };
 
-    // Device motion/orientation sensor access generally requires HTTPS.
+    const mq = window.matchMedia('(orientation: landscape)');
 
-    window.addEventListener('deviceorientation', handleDeviceOrientation);
+    const handleMediaQueryChange = (
 
-    // Keep screen-size events as a fallback for browsers that do not
+      event: MediaQueryListEvent
 
-    // provide device-orientation sensor readings.
+    ) => {
 
-    const syncFromScreen = () => {
-
-      if (orientationHistoryRef.current.length > 0) return;
-
-      const next = getDeviceOrientation();
-
-      orientationRef.current = next;
-
-      setOrientation(next);
+      if (autoRotate) setOrientation(event.matches ? 'landscape' : 'portrait');
+      setRotationAngle(getDeviceRotationAngle());
 
     };
 
-    window.addEventListener('orientationchange', syncFromScreen);
+    if (typeof mq.addEventListener === 'function') {
 
-    window.addEventListener('resize', syncFromScreen);
+      mq.addEventListener('change', handleMediaQueryChange);
+
+    } else {
+
+      (mq as any).addListener(handleMediaQueryChange);
+
+    }
+
+    window.addEventListener('resize', syncOrientationDelayed);
+
+    window.addEventListener(
+
+      'orientationchange',
+
+      syncOrientationDelayed
+
+    );
+
+    const screenOrientation = window.screen?.orientation;
+
+    if (screenOrientation) {
+
+      screenOrientation.addEventListener(
+
+        'change',
+
+        syncOrientationDelayed
+
+      );
+
+    }
+
+    syncOrientation();
 
     return () => {
 
+      window.clearTimeout(resizeTimer);
+
+      if (typeof mq.removeEventListener === 'function') {
+
+        mq.removeEventListener(
+
+          'change',
+
+          handleMediaQueryChange
+
+        );
+
+      } else {
+
+        (mq as any).removeListener(handleMediaQueryChange);
+
+      }
+
       window.removeEventListener(
 
-        'deviceorientation',
+        'resize',
 
-        handleDeviceOrientation
+        syncOrientationDelayed
 
       );
 
-      window.removeEventListener('orientationchange', syncFromScreen);
+      window.removeEventListener(
 
-      window.removeEventListener('resize', syncFromScreen);
+        'orientationchange',
+
+        syncOrientationDelayed
+
+      );
+
+      if (screenOrientation) {
+
+        screenOrientation.removeEventListener(
+
+          'change',
+
+          syncOrientationDelayed
+
+        );
+
+      }
 
     };
 
   }, [autoRotate]);
+
+  // =========================================================
 
   // LIVE CLOCK
 
@@ -858,15 +755,7 @@ const stampStyle = useMemo<StampStyle>(
 
     }
 
-    const requestedOrientation = autoRotate
-
-      ? getRecentOrientation()
-
-      : orientation;
-
-    orientationRef.current = requestedOrientation;
-
-    setOrientation(requestedOrientation);
+    const requestedOrientation = orientation;
 
     setIsProcessing(true);
 
@@ -1219,6 +1108,176 @@ const stampStyle = useMemo<StampStyle>(
         "
 
       />
+
+      {/* =====================================================
+
+          VIEWFINDER
+
+      ====================================================== */}
+
+      <div
+
+        className="
+
+          absolute
+
+          inset-0
+
+          pointer-events-none
+
+          z-10
+
+          flex
+
+          items-center
+
+          justify-center
+
+          p-4
+
+          sm:p-6
+
+        "
+
+      >
+
+        <div
+
+          className={`
+
+            relative
+
+            transition-all
+
+            duration-300
+
+            border
+
+            border-white/20
+
+            rounded-2xl
+
+            ${
+
+              isPortrait
+
+                ? 'aspect-[3/4] h-full max-h-[78vh] w-auto'
+
+                : 'aspect-[16/9] w-full max-w-[94vw] max-h-[62vh] h-auto'
+
+            }
+
+          `}
+
+        >
+
+          <div
+
+            className="
+
+              absolute
+
+              -top-1
+
+              -left-1
+
+              w-5
+
+              h-5
+
+              border-t-2
+
+              border-l-2
+
+              border-white/60
+
+              rounded-tl
+
+            "
+
+          />
+
+          <div
+
+            className="
+
+              absolute
+
+              -top-1
+
+              -right-1
+
+              w-5
+
+              h-5
+
+              border-t-2
+
+              border-r-2
+
+              border-white/60
+
+              rounded-tr
+
+            "
+
+          />
+
+          <div
+
+            className="
+
+              absolute
+
+              -bottom-1
+
+              -left-1
+
+              w-5
+
+              h-5
+
+              border-b-2
+
+              border-l-2
+
+              border-white/60
+
+              rounded-bl
+
+            "
+
+          />
+
+          <div
+
+            className="
+
+              absolute
+
+              -bottom-1
+
+              -right-1
+
+              w-5
+
+              h-5
+
+              border-b-2
+
+              border-r-2
+
+              border-white/60
+
+              rounded-br
+
+            "
+
+          />
+
+        </div>
+
+      </div>
 
       {/* =====================================================
 
@@ -1758,6 +1817,17 @@ const stampStyle = useMemo<StampStyle>(
 
         </div>
 
+        {/* Live orientation and rotation report */}
+        <div
+          className="flex items-center gap-1 rounded-md border border-cyan-300/30 bg-cyan-950/60 px-2 py-1 font-mono text-[9px] sm:text-[10px] text-cyan-100 whitespace-nowrap"
+          aria-live="polite"
+          title="Live screen orientation and rotation angle"
+        >
+          <RotateCcw className="h-3 w-3" />
+          <span>{orientation.toUpperCase()}</span>
+          <span className="text-cyan-300">{rotationAngle}°</span>
+        </div>
+
         {/* Network / Battery / Clock */}
 
         <div className="flex items-center gap-1.5 sm:gap-2 font-mono text-[10px] sm:text-[11px] shrink-0">
@@ -2034,17 +2104,17 @@ const stampStyle = useMemo<StampStyle>(
 
             rounded-2xl
 
-            bg-black/58
+            bg-slate-50/95
 
             border
 
-            border-white/20
+            border-slate-200/90
 
             shadow-2xl
 
             backdrop-blur-xl
 
-            text-white
+            text-slate-900
 
             font-sans
 
@@ -2052,13 +2122,13 @@ const stampStyle = useMemo<StampStyle>(
 
             ring-1
 
-            ring-white/5
+            ring-cyan-500/10
 
             ${
 
               isLandscape
 
-                ? 'p-3 text-[10px] space-y-1.5'
+                ? 'p-4 text-[11px] space-y-2'
 
                 : 'p-4 sm:p-5 text-xs space-y-2.5'
 
@@ -2078,7 +2148,7 @@ const stampStyle = useMemo<StampStyle>(
 
                 font-semibold
 
-                text-white
+                text-slate-900
 
                 tracking-wide
 
@@ -2088,9 +2158,9 @@ const stampStyle = useMemo<StampStyle>(
 
                   isLandscape
 
-                    ? 'text-[11px] sm:text-xs'
+                    ? 'text-xs sm:text-sm'
 
-                    : 'text-xs sm:text-sm'
+                    : 'text-sm sm:text-base'
 
                 }
 
@@ -2110,7 +2180,7 @@ const stampStyle = useMemo<StampStyle>(
 
                   font-medium
 
-                  text-slate-200
+                  text-slate-600
 
                   truncate
 
@@ -2138,7 +2208,7 @@ const stampStyle = useMemo<StampStyle>(
 
           {/* Divider */}
 
-          <div className="h-px bg-white/20 w-full" />
+          <div className="h-px bg-slate-300 w-full" />
 
           {/* Information grid */}
 
