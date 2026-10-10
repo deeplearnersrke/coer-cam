@@ -201,13 +201,11 @@ const StampField: React.FC<{
 };
 
 export const CameraView: React.FC<CameraViewProps> = ({
-
   setActiveTab,
-
   showToast,
-
   isOnline = true,
-
+  location,
+  isGpsSearching,
 }) => {
 
   const {
