@@ -937,7 +937,7 @@ export async function generateStampedImage(
 
 
   // Compact modern card: keep the overlay small so more of the photo remains visible.
-  const maxPanelHeightRatio = isLandscape ? 0.42 : 0.36;
+  const maxPanelHeightRatio = isLandscape ? 0.36 : 0.40;
 
 
 
@@ -999,23 +999,23 @@ export async function generateStampedImage(
 
     // Typography definitions
 
-    const fontHeader = `700 ${Math.round(18 * s)}px ${fontFamily}`;
+    const fontHeader = `700 ${Math.round(23 * s)}px ${fontFamily}`;
 
-    const fontSubHeader = `500 ${Math.round(13 * s)}px ${fontFamily}`;
+    const fontSubHeader = `500 ${Math.round(17 * s)}px ${fontFamily}`;
 
-    const fontLabel = `500 ${Math.round(11 * s)}px ${fontFamily}`;
+    const fontLabel = `600 ${Math.round(14 * s)}px ${fontFamily}`;
 
-    const fontValue = `400 ${Math.round(11.5 * s)}px ${fontFamily}`;
+    const fontValue = `400 ${Math.round(14.5 * s)}px ${fontFamily}`;
 
 
 
-    const headerLineH = Math.round(21 * s);
+    const headerLineH = Math.round(27 * s);
 
-    const subHeaderLineH = Math.round(16 * s);
+    const subHeaderLineH = Math.round(21 * s);
 
-    const itemLineH = Math.round(14 * s);
+    const itemLineH = Math.round(19 * s);
 
-    const itemGap = Math.round(1.5 * s);
+    const itemGap = Math.round(2 * s);
 
 
 
@@ -1027,9 +1027,9 @@ export async function generateStampedImage(
 
 
 
-    const logoSize = logoImg ? Math.round(38 * s) : 0;
+    const logoSize = logoImg ? Math.round(42 * s) : 0;
 
-    const qrSize = qrImg ? Math.round(56 * s) : 0;
+    const qrSize = qrImg ? Math.round(66 * s) : 0;
 
 
 
@@ -1551,9 +1551,9 @@ export async function generateStampedImage(
 
   ctx.clip();
 
-  // Slim blue accent for the selected modern inspection-card appearance.
-  ctx.fillStyle = 'rgba(59, 130, 246, 0.95)';
-  ctx.fillRect(layout.panelX, layout.panelY, Math.max(3, Math.round(3 * s)), layout.panelHeight);
+  // Slim blue accent for the modern inspection-card appearance.
+  ctx.fillStyle = 'rgba(37, 99, 235, 0.98)';
+  ctx.fillRect(layout.panelX, layout.panelY, Math.max(4, Math.round(4 * s)), layout.panelHeight);
 
   let curY =
 
@@ -1619,7 +1619,7 @@ export async function generateStampedImage(
 
   if (layout.subHeaderLines.length > 0) {
 
-    ctx.fillStyle = '#E2E8F0';
+    ctx.fillStyle = '#334155';
 
     ctx.font = layout.fontSubHeader;
 
@@ -1647,7 +1647,7 @@ export async function generateStampedImage(
 
 
 
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
+  ctx.fillStyle = 'rgba(100, 116, 139, 0.28)';
 
 
 
@@ -1697,7 +1697,7 @@ export async function generateStampedImage(
 
       // Label
 
-      ctx.fillStyle = '#CBD5E1';
+      ctx.fillStyle = '#475569';
 
       ctx.font = layout.fontLabel;
 
@@ -1817,7 +1817,7 @@ export async function generateStampedImage(
 
 
 
-  ctx.strokeStyle = 'rgba(59, 130, 246, 0.88)';
+  ctx.strokeStyle = 'rgba(37, 99, 235, 0.72)';
 
   ctx.lineWidth = Math.max(1, Math.round(1.35 * s));
 
