@@ -936,15 +936,16 @@ export async function generateStampedImage(
 
 
 
-  const maxPanelHeightRatio = isLandscape ? 0.68 : 0.50;
+  // Compact modern card: keep the overlay small so more of the photo remains visible.
+  const maxPanelHeightRatio = isLandscape ? 0.42 : 0.36;
 
 
 
   const createLayout = (s: number) => {
 
-    const pad = Math.round(18 * s);
+    const pad = Math.round(13 * s);
 
-    const cornerRadius = Math.round(10 * s);
+    const cornerRadius = Math.round(16 * s);
 
 
 
@@ -998,23 +999,23 @@ export async function generateStampedImage(
 
     // Typography definitions
 
-    const fontHeader = `600 ${Math.round(17 * s)}px ${fontFamily}`;
+    const fontHeader = `700 ${Math.round(18 * s)}px ${fontFamily}`;
 
-    const fontSubHeader = `500 ${Math.round(14 * s)}px ${fontFamily}`;
+    const fontSubHeader = `500 ${Math.round(13 * s)}px ${fontFamily}`;
 
-    const fontLabel = `500 ${Math.round(12.5 * s)}px ${fontFamily}`;
+    const fontLabel = `500 ${Math.round(11 * s)}px ${fontFamily}`;
 
-    const fontValue = `400 ${Math.round(12.5 * s)}px ${fontFamily}`;
+    const fontValue = `400 ${Math.round(11.5 * s)}px ${fontFamily}`;
 
 
 
-    const headerLineH = Math.round(23 * s);
+    const headerLineH = Math.round(21 * s);
 
-    const subHeaderLineH = Math.round(19 * s);
+    const subHeaderLineH = Math.round(16 * s);
 
-    const itemLineH = Math.round(17 * s);
+    const itemLineH = Math.round(14 * s);
 
-    const itemGap = Math.round(3 * s);
+    const itemGap = Math.round(1.5 * s);
 
 
 
@@ -1022,13 +1023,13 @@ export async function generateStampedImage(
 
     const valueGap = Math.round(10 * s);
 
-    const colGap = Math.round(24 * s);
+    const colGap = Math.round(16 * s);
 
 
 
-    const logoSize = logoImg ? Math.round(46 * s) : 0;
+    const logoSize = logoImg ? Math.round(38 * s) : 0;
 
-    const qrSize = qrImg ? Math.round(68 * s) : 0;
+    const qrSize = qrImg ? Math.round(56 * s) : 0;
 
 
 
@@ -1234,7 +1235,7 @@ export async function generateStampedImage(
 
 
 
-    const dividerSpace = Math.round(15 * s);
+    const dividerSpace = Math.round(9 * s);
 
 
 
@@ -1540,7 +1541,7 @@ export async function generateStampedImage(
 
 
 
-  ctx.fillStyle = `rgba(0, 0, 0, ${panelOpacity})`;
+  ctx.fillStyle = `rgba(12, 16, 24, ${panelOpacity})`;
 
   ctx.fill();
 
@@ -1550,7 +1551,9 @@ export async function generateStampedImage(
 
   ctx.clip();
 
-
+  // Slim blue accent for the selected modern inspection-card appearance.
+  ctx.fillStyle = 'rgba(59, 130, 246, 0.95)';
+  ctx.fillRect(layout.panelX, layout.panelY, Math.max(3, Math.round(3 * s)), layout.panelHeight);
 
   let curY =
 
@@ -1662,7 +1665,7 @@ export async function generateStampedImage(
 
 
 
-  curY += Math.round(11 * s);
+  curY += Math.round(6 * s);
 
 
 
@@ -1814,9 +1817,9 @@ export async function generateStampedImage(
 
 
 
-  ctx.strokeStyle = 'rgba(255, 255, 255, 0.18)';
+  ctx.strokeStyle = 'rgba(59, 130, 246, 0.88)';
 
-  ctx.lineWidth = Math.max(1, Math.round(1 * s));
+  ctx.lineWidth = Math.max(1, Math.round(1.35 * s));
 
   ctx.stroke();
 
