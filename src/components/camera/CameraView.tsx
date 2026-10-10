@@ -32,7 +32,6 @@ import {
 
 import { useCamera } from '../../hooks/useCamera';
 
-import { useGps } from '../../hooks/useGps';
 
 import { useEventContext } from '../../contexts/EventContext';
 
@@ -40,7 +39,7 @@ import { generateStampedImage } from '../../services/stampEngine';
 
 import { getNextPhotoNumber, db } from '../../services/db';
 
-import { GeoPhoto, StampStyle } from '../../types';
+import { GeoLocationData, GeoPhoto, StampStyle } from '../../types';
 
 import { reverseGeocode } from '../../services/gps';
 
@@ -57,6 +56,9 @@ interface CameraViewProps {
   ) => void;
 
   isOnline?: boolean;
+  /** Shared app-level GPS state; keeps camera from creating a second watcher. */
+  location: GeoLocationData | null;
+  isGpsSearching: boolean;
 
 }
 
@@ -240,15 +242,7 @@ export const CameraView: React.FC<CameraViewProps> = ({
 
   } = useEventContext();
 
-  const {
-
-    location,
-
-    isSearching: isGpsSearching,
-
-  } = useGps(settings.gpsHighAccuracy);
-
-  const stampStyle = useMemo<StampStyle>(
+const stampStyle = useMemo<StampStyle>(
 
     () =>
 
@@ -2042,7 +2036,7 @@ export const CameraView: React.FC<CameraViewProps> = ({
 
             rounded-2xl
 
-            bg-black/65
+            bg-black/58
 
             border
 

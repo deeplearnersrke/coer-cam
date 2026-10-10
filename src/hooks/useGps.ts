@@ -2,14 +2,18 @@ import { useEffect, useState, useRef } from 'react';
 import { GeoLocationData } from '../types';
 import { reverseGeocode } from '../services/gps';
 
+/**
+ * GPS hook. When mounted at the app-shell level it keeps a single watch active
+ * while the app is open, so page changes do not restart the GPS search.
+ */
 export function useGps(enableHighAccuracy = true) {
   const [location, setLocation] = useState<GeoLocationData | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [isSearching, setIsSearching] = useState<boolean>(true);
+  const [isSearching, setIsSearching] = useState(true);
   const [heading, setHeading] = useState<number | null>(null);
-  const lastGeocodedKey = useRef<string>('');
+  const lastGeocodedKey = useRef('');
+  const requestId = useRef(0);
 
-  // 1. Geolocation Watcher
   useEffect(() => {
     if (!('geolocation' in navigator)) {
       setError('Geolocation is not supported by your browser');
@@ -17,41 +21,43 @@ export function useGps(enableHighAccuracy = true) {
       return;
     }
 
+    let disposed = false;
     setIsSearching(true);
-
     const watchId = navigator.geolocation.watchPosition(
       async (pos) => {
+        if (disposed) return;
         const { latitude, longitude, accuracy, altitude, heading: posHeading, speed } = pos.coords;
-
         setIsSearching(false);
         setError(null);
-
-        const newLoc: GeoLocationData = {
+        const next: GeoLocationData = {
           latitude,
           longitude,
           accuracy,
-          altitude: altitude || null,
-          heading: posHeading || heading || null,
-          speed: speed || null,
+          altitude: altitude ?? null,
+          heading: posHeading ?? heading ?? null,
+          speed: speed ?? null,
           timestamp: pos.timestamp || Date.now(),
         };
+        setLocation((prev) => ({ ...next, address: prev?.address }));
 
-        setLocation(prev => ({
-          ...newLoc,
-          address: prev?.address // preserve existing address while fetching
-        }));
-
-        // Debounced reverse geocode check (~100m grid)
+        // Reverse-geocode only after a meaningful movement; stale responses
+        // are ignored so an older request cannot overwrite a newer address.
         const key = `${latitude.toFixed(3)},${longitude.toFixed(3)}`;
         if (key !== lastGeocodedKey.current) {
           lastGeocodedKey.current = key;
-          const address = await reverseGeocode(latitude, longitude);
-          if (address) {
-            setLocation(prev => prev ? { ...prev, address } : null);
+          const thisRequest = ++requestId.current;
+          try {
+            const address = await reverseGeocode(latitude, longitude);
+            if (!disposed && thisRequest === requestId.current && address) {
+              setLocation((prev) => prev ? { ...prev, address } : prev);
+            }
+          } catch {
+            // GPS coordinates remain usable even if reverse geocoding fails.
           }
         }
       },
       (err) => {
+        if (disposed) return;
         setIsSearching(false);
         switch (err.code) {
           case err.PERMISSION_DENIED:
@@ -67,44 +73,32 @@ export function useGps(enableHighAccuracy = true) {
             setError('GPS Error: ' + err.message);
         }
       },
-      {
-        enableHighAccuracy,
-        timeout: 10000,
-        maximumAge: 5000,
-      }
+      { enableHighAccuracy, timeout: 15000, maximumAge: 5000 }
     );
 
     return () => {
+      disposed = true;
+      requestId.current++;
       navigator.geolocation.clearWatch(watchId);
     };
   }, [enableHighAccuracy]);
 
-  // 2. Device Orientation Compass Listener
   useEffect(() => {
     const handleOrientation = (event: DeviceOrientationEvent) => {
-      // webkitCompassHeading for iOS, alpha for Android
       let compass: number | null = null;
-      if ((event as any).webkitCompassHeading) {
-        compass = (event as any).webkitCompassHeading;
-      } else if (event.alpha !== null && event.alpha !== undefined) {
-        compass = 360 - event.alpha;
-      }
-
-      if (compass !== null && !isNaN(compass)) {
-        setHeading(Math.round(compass));
-        setLocation(prev => prev ? { ...prev, heading: Math.round(compass) } : null);
+      const webkitHeading = (event as DeviceOrientationEvent & { webkitCompassHeading?: number }).webkitCompassHeading;
+      if (typeof webkitHeading === 'number') compass = webkitHeading;
+      else if (typeof event.alpha === 'number') compass = 360 - event.alpha;
+      if (compass !== null && Number.isFinite(compass)) {
+        const value = Math.round((compass + 360) % 360);
+        setHeading(value);
+        setLocation((prev) => prev ? { ...prev, heading: value } : prev);
       }
     };
-
-    if (window.DeviceOrientationEvent) {
+    if ('DeviceOrientationEvent' in window) {
       window.addEventListener('deviceorientation', handleOrientation, true);
     }
-
-    return () => {
-      if (window.DeviceOrientationEvent) {
-        window.removeEventListener('deviceorientation', handleOrientation, true);
-      }
-    };
+    return () => window.removeEventListener('deviceorientation', handleOrientation, true);
   }, []);
 
   return { location, error, isSearching, heading };
