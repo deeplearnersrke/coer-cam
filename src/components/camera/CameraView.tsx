@@ -1,92 +1,65 @@
-import { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 
-type OrientationData = {
-  orientation: "Portrait" | "Landscape";
-  angle: number | null;
-  beta: number | null;
-  gamma: number | null;
-};
+type Orientation = "Portrait" | "Landscape";
 
-export default function OrientationChecker() {
-  const [data, setData] = useState<OrientationData>({
-    orientation: "Portrait",
-    angle: null,
-    beta: null,
-    gamma: null,
+export const CameraView: React.FC = () => {
+  const getOrientation = (): Orientation => {
+    const angle = screen.orientation?.angle;
+
+    if (typeof angle === "number") {
+      return Math.abs(angle) === 90 ? "Landscape" : "Portrait";
+    }
+
+    return window.matchMedia("(orientation: landscape)").matches
+      ? "Landscape"
+      : "Portrait";
+  };
+
+  const [orientation, setOrientation] =
+    useState<Orientation>(getOrientation);
+
+  const [sensorData, setSensorData] = useState({
+    beta: null as number | null,
+    gamma: null as number | null,
   });
 
   useEffect(() => {
-    const updateScreenOrientation = () => {
-      const angle =
-        screen.orientation?.angle ??
-        (typeof window.orientation === "number"
-          ? window.orientation
-          : 0);
-
-      setData((previous) => ({
-        ...previous,
-        orientation:
-          Math.abs(angle) === 90 ? "Landscape" : "Portrait",
-        angle,
-      }));
+    const updateOrientation = () => {
+      setOrientation(getOrientation());
     };
 
     const handleDeviceOrientation = (
       event: DeviceOrientationEvent
     ) => {
-      // Physical device sensor readings
-      const beta = event.beta;
-      const gamma = event.gamma;
+      setSensorData({
+        beta: event.beta,
+        gamma: event.gamma,
+      });
 
-      // Prefer actual screen orientation when available.
-      const angle =
-        screen.orientation?.angle ??
-        (typeof window.orientation === "number"
-          ? window.orientation
-          : null);
-
-      let orientation: "Portrait" | "Landscape";
-
-      if (angle !== null) {
-        orientation =
-          Math.abs(angle) === 90 ? "Landscape" : "Portrait";
-      } else {
-        // Fallback using physical device tilt.
-        orientation =
-          Math.abs(gamma ?? 0) > Math.abs(beta ?? 0)
-            ? "Landscape"
-            : "Portrait";
+      // Use physical sensor readings if screen orientation is locked.
+      if (screen.orientation?.type) {
+        return;
       }
 
-      setData({ orientation, angle, beta, gamma });
+      if (event.beta !== null && event.gamma !== null) {
+        const isLandscape =
+          Math.abs(event.gamma) > Math.abs(event.beta);
+
+        setOrientation(isLandscape ? "Landscape" : "Portrait");
+      }
     };
 
-    updateScreenOrientation();
+    window.addEventListener("resize", updateOrientation);
+    window.addEventListener("orientationchange", updateOrientation);
+    screen.orientation?.addEventListener("change", updateOrientation);
+    window.addEventListener("deviceorientation", handleDeviceOrientation);
 
-    window.addEventListener("resize", updateScreenOrientation);
-    window.addEventListener(
-      "orientationchange",
-      updateScreenOrientation
-    );
-    screen.orientation?.addEventListener(
-      "change",
-      updateScreenOrientation
-    );
-    window.addEventListener(
-      "deviceorientation",
-      handleDeviceOrientation
-    );
+    updateOrientation();
 
     return () => {
-      window.removeEventListener("resize", updateScreenOrientation);
-      window.removeEventListener(
-        "orientationchange",
-        updateScreenOrientation
-      );
-      screen.orientation?.removeEventListener(
-        "change",
-        updateScreenOrientation
-      );
+      window.removeEventListener("resize", updateOrientation);
+      window.removeEventListener("orientationchange", updateOrientation);
+      screen.orientation?.removeEventListener("change", updateOrientation);
       window.removeEventListener(
         "deviceorientation",
         handleDeviceOrientation
@@ -95,12 +68,21 @@ export default function OrientationChecker() {
   }, []);
 
   return (
-    <div>
-      <h2>Phone Orientation</h2>
-      <p>Orientation: {data.orientation}</p>
-      <p>Screen angle: {data.angle ?? "Unavailable"}°</p>
-      <p>Beta: {data.beta ?? "Sensor unavailable"}</p>
-      <p>Gamma: {data.gamma ?? "Sensor unavailable"}</p>
+    <div className="min-h-screen bg-black text-white flex flex-col items-center justify-center gap-4 p-6">
+      <h1 className="text-2xl font-bold">Phone Orientation</h1>
+
+      <div className="rounded-xl border border-white/20 bg-white/10 p-6 text-center">
+        <p className="text-4xl font-semibold">{orientation}</p>
+        <p className="mt-3 text-sm text-gray-300">
+          Screen angle: {screen.orientation?.angle ?? "Unavailable"}°
+        </p>
+        <p className="text-sm text-gray-300">
+          Beta: {sensorData.beta ?? "Unavailable"}°
+        </p>
+        <p className="text-sm text-gray-300">
+          Gamma: {sensorData.gamma ?? "Unavailable"}°
+        </p>
+      </div>
     </div>
   );
-}
+};
