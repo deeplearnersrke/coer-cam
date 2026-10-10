@@ -199,11 +199,11 @@ const StampField: React.FC<{
 
     >
 
-      <span className="font-medium text-slate-600">{label}</span>
+      <span className="font-semibold text-white/60">{label}</span>
 
-      <span>:</span>
+      <span className="text-white/35">:</span>
 
-      <span className={`text-slate-900 ${valueClassName}`}>{value}</span>
+      <span className={`min-w-0 text-white/95 ${valueClassName}`}>{value}</span>
 
     </div>
 
@@ -2104,17 +2104,17 @@ export const CameraView: React.FC<CameraViewProps> = ({
 
             rounded-2xl
 
-            bg-slate-50/95
+            bg-black/65
 
             border
 
-            border-slate-200/90
+            border-white/20
 
             shadow-2xl
 
             backdrop-blur-xl
 
-            text-slate-900
+            text-white
 
             font-sans
 
@@ -2122,13 +2122,13 @@ export const CameraView: React.FC<CameraViewProps> = ({
 
             ring-1
 
-            ring-cyan-500/10
+            ring-white/5
 
             ${
 
               isLandscape
 
-                ? 'p-4 text-[11px] space-y-2'
+                ? 'p-3 text-[10px] space-y-1.5'
 
                 : 'p-4 sm:p-5 text-xs space-y-2.5'
 
@@ -2140,7 +2140,7 @@ export const CameraView: React.FC<CameraViewProps> = ({
 
           {/* Header */}
 
-          <div className="space-y-0.5">
+          <div className="min-w-0 space-y-0.5">
 
             <h3
 
@@ -2148,7 +2148,7 @@ export const CameraView: React.FC<CameraViewProps> = ({
 
                 font-semibold
 
-                text-slate-900
+                text-white
 
                 tracking-wide
 
@@ -2158,9 +2158,9 @@ export const CameraView: React.FC<CameraViewProps> = ({
 
                   isLandscape
 
-                    ? 'text-xs sm:text-sm'
+                    ? 'text-[11px] sm:text-xs'
 
-                    : 'text-sm sm:text-base'
+                    : 'text-xs sm:text-sm'
 
                 }
 
@@ -2180,7 +2180,7 @@ export const CameraView: React.FC<CameraViewProps> = ({
 
                   font-medium
 
-                  text-slate-600
+                  text-slate-200
 
                   truncate
 
@@ -2208,7 +2208,7 @@ export const CameraView: React.FC<CameraViewProps> = ({
 
           {/* Divider */}
 
-          <div className="h-px bg-slate-300 w-full" />
+          <div className="h-px bg-white/15 w-full" />
 
           {/* Information grid */}
 
