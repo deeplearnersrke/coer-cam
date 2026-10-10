@@ -265,175 +265,287 @@ export const CameraView: React.FC<CameraViewProps> = ({
   // =========================================================
 
   // =========================================================
+
   // ORIENTATION STATE + TIMESTAMPED FIFO SENSOR HISTORY
+
   // =========================================================
 
   type OrientationSample = {
+
     time: number;
+
     beta: number;
+
     gamma: number;
+
   };
 
   const HISTORY_WINDOW_MS = 2000;
+
   const LANDSCAPE_ENTER_ANGLE = 60;
+
   const PORTRAIT_ENTER_ANGLE = 30;
+
   const MIN_STABLE_DURATION_MS = 500;
 
   const orientationHistoryRef = useRef<OrientationSample[]>([]);
+
   const orientationRef = useRef<OrientationMode>(getDeviceOrientation());
+
   const candidateRef = useRef<{
+
     orientation: OrientationMode;
+
     since: number;
+
   } | null>(null);
 
   const [orientation, setOrientation] = useState<OrientationMode>(
+
     () => getDeviceOrientation()
+
   );
+
   const [autoRotate, setAutoRotate] = useState(true);
 
   const isPortrait = orientation === 'portrait';
+
   const isLandscape = orientation === 'landscape';
 
   const [isProcessing, setIsProcessing] = useState(false);
+
   const [shutterFlash, setShutterFlash] = useState(false);
+
   const [currentTimeStr, setCurrentTimeStr] = useState('');
+
   const [currentDateStr, setCurrentDateStr] = useState('');
+
   const [lastCapturedPhotoUrl, setLastCapturedPhotoUrl] =
+
     useState<string | null>(null);
+
   const [batteryLevel, setBatteryLevel] = useState<number | null>(null);
 
   // Remove old samples and infer orientation from the recent history.
+
   const getRecentOrientation = (
+
     now: number = Date.now()
+
   ): OrientationMode => {
+
     const history = orientationHistoryRef.current;
 
     while (
+
       history.length > 0 &&
+
       now - history[0].time > HISTORY_WINDOW_MS
+
     ) {
+
       history.shift();
+
     }
 
     if (history.length === 0) return orientationRef.current;
 
     // Use the most recent samples, not a single potentially noisy reading.
+
     const recent = history.slice(-10);
+
     const gammaValues = recent.map((sample) => Math.abs(sample.gamma));
+
     const averageGamma =
+
       gammaValues.reduce((sum, value) => sum + value, 0) /
+
       gammaValues.length;
 
     if (orientationRef.current === 'portrait') {
+
       return averageGamma >= LANDSCAPE_ENTER_ANGLE
+
         ? 'landscape'
+
         : 'portrait';
+
     }
 
     return averageGamma <= PORTRAIT_ENTER_ANGLE
+
       ? 'portrait'
+
       : 'landscape';
+
   };
 
   // =========================================================
+
   // AUTOMATIC ORIENTATION DETECTION
+
   // =========================================================
 
   useEffect(() => {
+
     if (!autoRotate) return;
 
     const handleDeviceOrientation = (event: DeviceOrientationEvent) => {
+
       if (event.beta === null || event.gamma === null) return;
 
       const now = Date.now();
+
       const history = orientationHistoryRef.current;
 
       history.push({
+
         time: now,
+
         beta: event.beta,
+
         gamma: event.gamma,
+
       });
 
       // FIFO cleanup: keep only the latest two seconds.
+
       while (
+
         history.length > 0 &&
+
         now - history[0].time > HISTORY_WINDOW_MS
+
       ) {
+
         history.shift();
+
       }
 
       const gamma = Math.abs(event.gamma);
+
       const current = orientationRef.current;
 
       // Hysteresis prevents frequent switching around one threshold.
+
       const target: OrientationMode | null =
+
         current === 'portrait'
+
           ? gamma >= LANDSCAPE_ENTER_ANGLE
+
             ? 'landscape'
+
             : null
+
           : gamma <= PORTRAIT_ENTER_ANGLE
+
             ? 'portrait'
+
             : null;
 
       if (!target) {
+
         candidateRef.current = null;
+
         return;
+
       }
 
       if (candidateRef.current?.orientation !== target) {
+
         candidateRef.current = { orientation: target, since: now };
+
         return;
+
       }
 
       if (
+
         now - candidateRef.current.since < MIN_STABLE_DURATION_MS
+
       ) {
+
         return;
+
       }
 
       // Require enough recent samples to support the change.
+
       const recent = history.filter(
+
         (sample) => now - sample.time <= 1000
+
       );
+
       const targetSamples = recent.filter((sample) =>
+
         target === 'landscape'
+
           ? Math.abs(sample.gamma) >= LANDSCAPE_ENTER_ANGLE
+
           : Math.abs(sample.gamma) <= PORTRAIT_ENTER_ANGLE
+
       );
 
       if (
+
         recent.length >= 3 &&
+
         targetSamples.length / recent.length >= 0.65
+
       ) {
+
         orientationRef.current = target;
+
         setOrientation(target);
+
         candidateRef.current = null;
+
       }
+
     };
 
     // Device motion/orientation sensor access generally requires HTTPS.
+
     window.addEventListener('deviceorientation', handleDeviceOrientation);
 
     // Keep screen-size events as a fallback for browsers that do not
+
     // provide device-orientation sensor readings.
+
     const syncFromScreen = () => {
+
       if (orientationHistoryRef.current.length > 0) return;
+
       const next = getDeviceOrientation();
+
       orientationRef.current = next;
+
       setOrientation(next);
+
     };
 
     window.addEventListener('orientationchange', syncFromScreen);
+
     window.addEventListener('resize', syncFromScreen);
 
     return () => {
+
       window.removeEventListener(
+
         'deviceorientation',
+
         handleDeviceOrientation
+
       );
+
       window.removeEventListener('orientationchange', syncFromScreen);
+
       window.removeEventListener('resize', syncFromScreen);
+
     };
+
   }, [autoRotate]);
 
   // LIVE CLOCK
@@ -755,10 +867,13 @@ export const CameraView: React.FC<CameraViewProps> = ({
     }
 
     const requestedOrientation = autoRotate
+
       ? getRecentOrientation()
+
       : orientation;
 
     orientationRef.current = requestedOrientation;
+
     setOrientation(requestedOrientation);
 
     setIsProcessing(true);
