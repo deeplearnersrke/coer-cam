@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 
 import {
 
@@ -32,7 +32,6 @@ import {
 
 import { useCamera } from '../../hooks/useCamera';
 
-import { useGps } from '../../hooks/useGps';
 
 import { useEventContext } from '../../contexts/EventContext';
 
@@ -40,7 +39,7 @@ import { generateStampedImage } from '../../services/stampEngine';
 
 import { getNextPhotoNumber, db } from '../../services/db';
 
-import { GeoPhoto, StampStyle } from '../../types';
+import { GeoLocationData, GeoPhoto, StampStyle } from '../../types';
 
 import { reverseGeocode } from '../../services/gps';
 
@@ -57,6 +56,9 @@ interface CameraViewProps {
   ) => void;
 
   isOnline?: boolean;
+  /** Shared app-level GPS state; keeps camera from creating a second watcher. */
+  location: GeoLocationData | null;
+  isGpsSearching: boolean;
 
 }
 
@@ -94,19 +96,6 @@ function getDeviceOrientation(): OrientationMode {
 
     : 'portrait';
 
-}
-
-function getDeviceRotationAngle(): number {
-  if (typeof window === 'undefined') return 0;
-  const screenAngle = window.screen?.orientation?.angle;
-  if (typeof screenAngle === 'number' && Number.isFinite(screenAngle)) {
-    return ((screenAngle % 360) + 360) % 360;
-  }
-  const legacyAngle = (window as Window & { orientation?: number }).orientation;
-  if (typeof legacyAngle === 'number' && Number.isFinite(legacyAngle)) {
-    return ((legacyAngle % 360) + 360) % 360;
-  }
-  return window.innerWidth > window.innerHeight ? 90 : 0;
 }
 
 function normalizeOrientation(value: unknown): OrientationMode {
@@ -199,11 +188,11 @@ const StampField: React.FC<{
 
     >
 
-      <span className="font-semibold text-white/60">{label}</span>
+      <span className="font-medium text-slate-300">{label}</span>
 
-      <span className="text-white/35">:</span>
+      <span>:</span>
 
-      <span className={`min-w-0 text-white/95 ${valueClassName}`}>{value}</span>
+      <span className={`text-white ${valueClassName}`}>{value}</span>
 
     </div>
 
@@ -212,13 +201,11 @@ const StampField: React.FC<{
 };
 
 export const CameraView: React.FC<CameraViewProps> = ({
-
   setActiveTab,
-
   showToast,
-
   isOnline = true,
-
+  location,
+  isGpsSearching,
 }) => {
 
   const {
@@ -253,15 +240,7 @@ export const CameraView: React.FC<CameraViewProps> = ({
 
   } = useEventContext();
 
-  const {
-
-    location,
-
-    isSearching: isGpsSearching,
-
-  } = useGps(settings.gpsHighAccuracy);
-
-  const stampStyle = useMemo<StampStyle>(
+const stampStyle = useMemo<StampStyle>(
 
     () =>
 
@@ -277,9 +256,41 @@ export const CameraView: React.FC<CameraViewProps> = ({
 
   // =========================================================
 
-  // ORIENTATION STATE
+  // =========================================================
+
+  // ORIENTATION STATE + TIMESTAMPED FIFO SENSOR HISTORY
 
   // =========================================================
+
+  type OrientationSample = {
+
+    time: number;
+
+    beta: number;
+
+    gamma: number;
+
+  };
+
+  const HISTORY_WINDOW_MS = 2000;
+
+  const LANDSCAPE_ENTER_ANGLE = 60;
+
+  const PORTRAIT_ENTER_ANGLE = 30;
+
+  const MIN_STABLE_DURATION_MS = 500;
+
+  const orientationHistoryRef = useRef<OrientationSample[]>([]);
+
+  const orientationRef = useRef<OrientationMode>(getDeviceOrientation());
+
+  const candidateRef = useRef<{
+
+    orientation: OrientationMode;
+
+    since: number;
+
+  } | null>(null);
 
   const [orientation, setOrientation] = useState<OrientationMode>(
 
@@ -288,7 +299,6 @@ export const CameraView: React.FC<CameraViewProps> = ({
   );
 
   const [autoRotate, setAutoRotate] = useState(true);
-  const [rotationAngle, setRotationAngle] = useState(0);
 
   const isPortrait = orientation === 'portrait';
 
@@ -308,6 +318,60 @@ export const CameraView: React.FC<CameraViewProps> = ({
 
   const [batteryLevel, setBatteryLevel] = useState<number | null>(null);
 
+  // Remove old samples and infer orientation from the recent history.
+
+  const getRecentOrientation = (
+
+    now: number = Date.now()
+
+  ): OrientationMode => {
+
+    const history = orientationHistoryRef.current;
+
+    while (
+
+      history.length > 0 &&
+
+      now - history[0].time > HISTORY_WINDOW_MS
+
+    ) {
+
+      history.shift();
+
+    }
+
+    if (history.length === 0) return orientationRef.current;
+
+    // Use the most recent samples, not a single potentially noisy reading.
+
+    const recent = history.slice(-10);
+
+    const gammaValues = recent.map((sample) => Math.abs(sample.gamma));
+
+    const averageGamma =
+
+      gammaValues.reduce((sum, value) => sum + value, 0) /
+
+      gammaValues.length;
+
+    if (orientationRef.current === 'portrait') {
+
+      return averageGamma >= LANDSCAPE_ENTER_ANGLE
+
+        ? 'landscape'
+
+        : 'portrait';
+
+    }
+
+    return averageGamma <= PORTRAIT_ENTER_ANGLE
+
+      ? 'portrait'
+
+      : 'landscape';
+
+  };
+
   // =========================================================
 
   // AUTOMATIC ORIENTATION DETECTION
@@ -315,127 +379,166 @@ export const CameraView: React.FC<CameraViewProps> = ({
   // =========================================================
 
   useEffect(() => {
-    let resizeTimer: number | undefined;
 
-    const syncOrientation = () => {
-      const angle = getDeviceRotationAngle();
-      setRotationAngle((prev) => (prev === angle ? prev : angle));
-      if (autoRotate) {
-        const next = getDeviceOrientation();
-        setOrientation((prev) => (prev === next ? prev : next));
+    if (!autoRotate) return;
+
+    const handleDeviceOrientation = (event: DeviceOrientationEvent) => {
+
+      if (event.beta === null || event.gamma === null) return;
+
+      const now = Date.now();
+
+      const history = orientationHistoryRef.current;
+
+      history.push({
+
+        time: now,
+
+        beta: event.beta,
+
+        gamma: event.gamma,
+
+      });
+
+      // FIFO cleanup: keep only the latest two seconds.
+
+      while (
+
+        history.length > 0 &&
+
+        now - history[0].time > HISTORY_WINDOW_MS
+
+      ) {
+
+        history.shift();
+
       }
-    };
 
-    const syncOrientationDelayed = () => {
+      const gamma = Math.abs(event.gamma);
 
-      window.clearTimeout(resizeTimer);
+      const current = orientationRef.current;
 
-      resizeTimer = window.setTimeout(syncOrientation, 100);
+      // Hysteresis prevents frequent switching around one threshold.
 
-    };
+      const target: OrientationMode | null =
 
-    const mq = window.matchMedia('(orientation: landscape)');
+        current === 'portrait'
 
-    const handleMediaQueryChange = (
+          ? gamma >= LANDSCAPE_ENTER_ANGLE
 
-      event: MediaQueryListEvent
+            ? 'landscape'
 
-    ) => {
+            : null
 
-      if (autoRotate) setOrientation(event.matches ? 'landscape' : 'portrait');
-      setRotationAngle(getDeviceRotationAngle());
+          : gamma <= PORTRAIT_ENTER_ANGLE
 
-    };
+            ? 'portrait'
 
-    if (typeof mq.addEventListener === 'function') {
+            : null;
 
-      mq.addEventListener('change', handleMediaQueryChange);
+      if (!target) {
 
-    } else {
+        candidateRef.current = null;
 
-      (mq as any).addListener(handleMediaQueryChange);
+        return;
 
-    }
+      }
 
-    window.addEventListener('resize', syncOrientationDelayed);
+      if (candidateRef.current?.orientation !== target) {
 
-    window.addEventListener(
+        candidateRef.current = { orientation: target, since: now };
 
-      'orientationchange',
+        return;
 
-      syncOrientationDelayed
+      }
 
-    );
+      if (
 
-    const screenOrientation = window.screen?.orientation;
+        now - candidateRef.current.since < MIN_STABLE_DURATION_MS
 
-    if (screenOrientation) {
+      ) {
 
-      screenOrientation.addEventListener(
+        return;
 
-        'change',
+      }
 
-        syncOrientationDelayed
+      // Require enough recent samples to support the change.
+
+      const recent = history.filter(
+
+        (sample) => now - sample.time <= 1000
 
       );
 
-    }
+      const targetSamples = recent.filter((sample) =>
 
-    syncOrientation();
+        target === 'landscape'
+
+          ? Math.abs(sample.gamma) >= LANDSCAPE_ENTER_ANGLE
+
+          : Math.abs(sample.gamma) <= PORTRAIT_ENTER_ANGLE
+
+      );
+
+      if (
+
+        recent.length >= 3 &&
+
+        targetSamples.length / recent.length >= 0.65
+
+      ) {
+
+        orientationRef.current = target;
+
+        setOrientation(target);
+
+        candidateRef.current = null;
+
+      }
+
+    };
+
+    // Device motion/orientation sensor access generally requires HTTPS.
+
+    window.addEventListener('deviceorientation', handleDeviceOrientation);
+
+    // Keep screen-size events as a fallback for browsers that do not
+
+    // provide device-orientation sensor readings.
+
+    const syncFromScreen = () => {
+
+      if (orientationHistoryRef.current.length > 0) return;
+
+      const next = getDeviceOrientation();
+
+      orientationRef.current = next;
+
+      setOrientation(next);
+
+    };
+
+    window.addEventListener('orientationchange', syncFromScreen);
+
+    window.addEventListener('resize', syncFromScreen);
 
     return () => {
 
-      window.clearTimeout(resizeTimer);
-
-      if (typeof mq.removeEventListener === 'function') {
-
-        mq.removeEventListener(
-
-          'change',
-
-          handleMediaQueryChange
-
-        );
-
-      } else {
-
-        (mq as any).removeListener(handleMediaQueryChange);
-
-      }
-
       window.removeEventListener(
 
-        'resize',
+        'deviceorientation',
 
-        syncOrientationDelayed
+        handleDeviceOrientation
 
       );
 
-      window.removeEventListener(
+      window.removeEventListener('orientationchange', syncFromScreen);
 
-        'orientationchange',
-
-        syncOrientationDelayed
-
-      );
-
-      if (screenOrientation) {
-
-        screenOrientation.removeEventListener(
-
-          'change',
-
-          syncOrientationDelayed
-
-        );
-
-      }
+      window.removeEventListener('resize', syncFromScreen);
 
     };
 
   }, [autoRotate]);
-
-  // =========================================================
 
   // LIVE CLOCK
 
@@ -755,7 +858,15 @@ export const CameraView: React.FC<CameraViewProps> = ({
 
     }
 
-    const requestedOrientation = orientation;
+    const requestedOrientation = autoRotate
+
+      ? getRecentOrientation()
+
+      : orientation;
+
+    orientationRef.current = requestedOrientation;
+
+    setOrientation(requestedOrientation);
 
     setIsProcessing(true);
 
@@ -1108,176 +1219,6 @@ export const CameraView: React.FC<CameraViewProps> = ({
         "
 
       />
-
-      {/* =====================================================
-
-          VIEWFINDER
-
-      ====================================================== */}
-
-      <div
-
-        className="
-
-          absolute
-
-          inset-0
-
-          pointer-events-none
-
-          z-10
-
-          flex
-
-          items-center
-
-          justify-center
-
-          p-4
-
-          sm:p-6
-
-        "
-
-      >
-
-        <div
-
-          className={`
-
-            relative
-
-            transition-all
-
-            duration-300
-
-            border
-
-            border-white/20
-
-            rounded-2xl
-
-            ${
-
-              isPortrait
-
-                ? 'aspect-[3/4] h-full max-h-[78vh] w-auto'
-
-                : 'aspect-[16/9] w-full max-w-[94vw] max-h-[62vh] h-auto'
-
-            }
-
-          `}
-
-        >
-
-          <div
-
-            className="
-
-              absolute
-
-              -top-1
-
-              -left-1
-
-              w-5
-
-              h-5
-
-              border-t-2
-
-              border-l-2
-
-              border-white/60
-
-              rounded-tl
-
-            "
-
-          />
-
-          <div
-
-            className="
-
-              absolute
-
-              -top-1
-
-              -right-1
-
-              w-5
-
-              h-5
-
-              border-t-2
-
-              border-r-2
-
-              border-white/60
-
-              rounded-tr
-
-            "
-
-          />
-
-          <div
-
-            className="
-
-              absolute
-
-              -bottom-1
-
-              -left-1
-
-              w-5
-
-              h-5
-
-              border-b-2
-
-              border-l-2
-
-              border-white/60
-
-              rounded-bl
-
-            "
-
-          />
-
-          <div
-
-            className="
-
-              absolute
-
-              -bottom-1
-
-              -right-1
-
-              w-5
-
-              h-5
-
-              border-b-2
-
-              border-r-2
-
-              border-white/60
-
-              rounded-br
-
-            "
-
-          />
-
-        </div>
-
-      </div>
 
       {/* =====================================================
 
@@ -1817,17 +1758,6 @@ export const CameraView: React.FC<CameraViewProps> = ({
 
         </div>
 
-        {/* Live orientation and rotation report */}
-        <div
-          className="flex items-center gap-1 rounded-md border border-cyan-300/30 bg-cyan-950/60 px-2 py-1 font-mono text-[9px] sm:text-[10px] text-cyan-100 whitespace-nowrap"
-          aria-live="polite"
-          title="Live screen orientation and rotation angle"
-        >
-          <RotateCcw className="h-3 w-3" />
-          <span>{orientation.toUpperCase()}</span>
-          <span className="text-cyan-300">{rotationAngle}°</span>
-        </div>
-
         {/* Network / Battery / Clock */}
 
         <div className="flex items-center gap-1.5 sm:gap-2 font-mono text-[10px] sm:text-[11px] shrink-0">
@@ -2104,7 +2034,7 @@ export const CameraView: React.FC<CameraViewProps> = ({
 
             rounded-2xl
 
-            bg-black/65
+            bg-black/58
 
             border
 
@@ -2140,7 +2070,7 @@ export const CameraView: React.FC<CameraViewProps> = ({
 
           {/* Header */}
 
-          <div className="min-w-0 space-y-0.5">
+          <div className="space-y-0.5">
 
             <h3
 
@@ -2208,7 +2138,7 @@ export const CameraView: React.FC<CameraViewProps> = ({
 
           {/* Divider */}
 
-          <div className="h-px bg-white/15 w-full" />
+          <div className="h-px bg-white/20 w-full" />
 
           {/* Information grid */}
 
