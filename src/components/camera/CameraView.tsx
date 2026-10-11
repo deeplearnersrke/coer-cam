@@ -97,16 +97,27 @@ function getDeviceOrientation(): OrientationMode {
 }
 
 function getDeviceRotationAngle(): number {
+
   if (typeof window === 'undefined') return 0;
+
   const screenAngle = window.screen?.orientation?.angle;
+
   if (typeof screenAngle === 'number' && Number.isFinite(screenAngle)) {
+
     return ((screenAngle % 360) + 360) % 360;
+
   }
+
   const legacyAngle = (window as Window & { orientation?: number }).orientation;
+
   if (typeof legacyAngle === 'number' && Number.isFinite(legacyAngle)) {
+
     return ((legacyAngle % 360) + 360) % 360;
+
   }
+
   return window.innerWidth > window.innerHeight ? 90 : 0;
+
 }
 
 function normalizeOrientation(value: unknown): OrientationMode {
@@ -288,6 +299,7 @@ export const CameraView: React.FC<CameraViewProps> = ({
   );
 
   const [autoRotate, setAutoRotate] = useState(true);
+
   const [rotationAngle, setRotationAngle] = useState(0);
 
   const isPortrait = orientation === 'portrait';
@@ -315,15 +327,23 @@ export const CameraView: React.FC<CameraViewProps> = ({
   // =========================================================
 
   useEffect(() => {
+
     let resizeTimer: number | undefined;
 
     const syncOrientation = () => {
+
       const angle = getDeviceRotationAngle();
+
       setRotationAngle((prev) => (prev === angle ? prev : angle));
+
       if (autoRotate) {
+
         const next = getDeviceOrientation();
+
         setOrientation((prev) => (prev === next ? prev : next));
+
       }
+
     };
 
     const syncOrientationDelayed = () => {
@@ -343,6 +363,7 @@ export const CameraView: React.FC<CameraViewProps> = ({
     ) => {
 
       if (autoRotate) setOrientation(event.matches ? 'landscape' : 'portrait');
+
       setRotationAngle(getDeviceRotationAngle());
 
     };
@@ -1818,14 +1839,23 @@ export const CameraView: React.FC<CameraViewProps> = ({
         </div>
 
         {/* Live orientation and rotation report */}
+
         <div
+
           className="flex items-center gap-1 rounded-md border border-cyan-300/30 bg-cyan-950/60 px-2 py-1 font-mono text-[9px] sm:text-[10px] text-cyan-100 whitespace-nowrap"
+
           aria-live="polite"
+
           title="Live screen orientation and rotation angle"
+
         >
+
           <RotateCcw className="h-3 w-3" />
+
           <span>{orientation.toUpperCase()}</span>
+
           <span className="text-cyan-300">{rotationAngle}°</span>
+
         </div>
 
         {/* Network / Battery / Clock */}
