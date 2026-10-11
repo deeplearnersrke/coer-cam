@@ -10,7 +10,6 @@ import {
 
 } from '../types';
 
-import { headingToCardinal } from './gps';
 
 import QRCode from 'qrcode';
 
@@ -522,19 +521,16 @@ export async function generateStampedImage(
 
   const eventName = event?.name || '';
 
-  const department = event?.department || '';
 
   const organizer = event?.organizer || '';
 
   const locationName = event?.locationName || '';
 
-  const remarks = event?.remarks || input.customRemarks || '';
 
   const logoUrl = event?.logoDataUrl || settings?.logoDataUrl || '';
 
   const dateStr = formatOfficialDate(timestamp);
 
-  const timeStr = formatOfficialTime(timestamp);
 
   const hasCoords =
 
@@ -574,18 +570,6 @@ export async function generateStampedImage(
 
       : '';
 
-  const directionStr =
-
-    settings?.showCompass &&
-
-    typeof location.heading === 'number' &&
-
-    !Number.isNaN(location.heading)
-
-      ? headingToCardinal(location.heading)
-
-      : '';
-
   const addr = location.address;
 
   const addressLine =
@@ -611,70 +595,6 @@ export async function generateStampedImage(
       .join(', ') ||
 
     locationName;
-
-  // Build Key-Value list (ONLY non-empty values!)
-
-  const items: KeyVal[] = [];
-
-  if (department) {
-
-    items.push({ label: 'Department', value: department });
-
-  }
-
-  if (organizer) {
-
-    items.push({ label: 'Organizer', value: organizer });
-
-  }
-
-  if (addressLine) {
-
-    items.push({ label: 'Location', value: addressLine });
-
-  }
-
-  if (latStr) {
-
-    items.push({ label: 'Latitude', value: latStr });
-
-  }
-
-  if (lonStr) {
-
-    items.push({ label: 'Longitude', value: lonStr });
-
-  }
-
-  if (accStr) {
-
-    items.push({ label: 'Accuracy', value: accStr });
-
-  }
-
-  if (altStr) {
-
-    items.push({ label: 'Altitude', value: altStr });
-
-  }
-
-  if (directionStr) {
-
-    items.push({ label: 'Direction', value: directionStr });
-
-  }
-
-  items.push({ label: 'Date', value: dateStr });
-
-  items.push({ label: 'Time', value: timeStr });
-
-  items.push({ label: 'Photo ID', value: photoNumber });
-
-  if (remarks) {
-
-    items.push({ label: 'Remarks', value: remarks });
-
-  }
 
   // QR Code (Only if enabled in settings)
 
@@ -732,13 +652,12 @@ export async function generateStampedImage(
 
     : `Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif`;
 
-  // Reference-matched dark glass stamp. Layout is based on the actual image
-  // dimensions; the QR code occupies a reserved area on the right, never a row.
+  // Reference-matched dark glass stamp. Location gets a full-width row;
+  // the remaining metadata stays in two columns. Direction is intentionally omitted.
   const panelAlpha = typeof settings?.watermarkOpacity === 'number'
     ? clamp(settings.watermarkOpacity, 0.78, 0.96)
     : 0.88;
 
-  // Scale typography from source width without a tiny lower-bound scale.
   const s = clamp(canvas.width / (isLandscape ? 1600 : 1080), 0.72, 1.8);
   const margin = Math.round(canvas.width * 0.022);
   const panelWidth = isLandscape
@@ -751,62 +670,81 @@ export async function generateStampedImage(
   const subtitleFont = `500 ${Math.round(20 * s)}px ${fontFamily}`;
   const labelFont = `500 ${Math.round(16 * s)}px ${fontFamily}`;
   const valueFont = `500 ${Math.round(17 * s)}px ${fontFamily}`;
-  const rowGap = Math.round(17 * s);
+  const rowGap = Math.round(13 * s);
+  const lineHeight = Math.round(22 * s);
   const headerLine = Math.round(34 * s);
   const subtitleLine = Math.round(25 * s);
   const qrSize = qrImg ? Math.round(116 * s) : 0;
   const qrFramePad = Math.round(7 * s);
-  const qrReserve = qrImg ? qrSize + qrFramePad * 2 + Math.round(20 * s) : 0;
+  const qrFrameSize = qrImg ? qrSize + qrFramePad * 2 : 0;
 
-  // Match the supplied reference's compact information set and two-column order.
-  const displayItems: KeyVal[] = [];
-  if (addressLine) displayItems.push({ label: 'Location', value: addressLine });
-  if (latStr && lonStr) displayItems.push({ label: 'GPS', value: `${latStr}, ${lonStr}` });
-  else if (latStr || lonStr) displayItems.push({ label: 'GPS', value: [latStr, lonStr].filter(Boolean).join(', ') });
-  if (accStr) displayItems.push({ label: 'Accuracy', value: accStr });
-  if (altStr) displayItems.push({ label: 'Altitude', value: altStr });
-  if (directionStr) displayItems.push({ label: 'Direction', value: directionStr });
-  displayItems.push({ label: 'Date', value: dateStr });
-  displayItems.push({ label: 'Time', value: formatOfficialTime(timestamp).replace(/:\d{2} (?=[AP]M)/, '') });
-  displayItems.push({ label: 'Photo ID', value: photoNumber });
-
-  const leftItems = displayItems.filter((i) => ['Location', 'GPS', 'Accuracy', 'Altitude'].includes(i.label));
-  const rightItems = displayItems.filter((i) => ['Direction', 'Date', 'Time', 'Photo ID'].includes(i.label));
   const innerWidth = panelWidth - pad * 2;
   const headerIconSize = Math.round(66 * s);
   const headerTextX = panelX + pad + headerIconSize + Math.round(20 * s);
-  const rightColumnWidth = Math.round(innerWidth * 0.39);
   const columnGap = Math.round(28 * s);
-  const leftColumnWidth = innerWidth - rightColumnWidth - columnGap - (qrImg ? qrReserve : 0);
-  const labelWidthLeft = Math.min(Math.round(112 * s), Math.round(leftColumnWidth * 0.28));
-  const labelWidthRight = Math.min(Math.round(92 * s), Math.round(rightColumnWidth * 0.42));
+  const columnWidth = Math.floor((innerWidth - columnGap) / 2);
+  const leftX = panelX + pad;
+  const rightX = leftX + columnWidth + columnGap;
+  const labelWidthLeft = Math.min(Math.round(100 * s), Math.round(columnWidth * 0.36));
+  const labelWidthRight = Math.min(Math.round(78 * s), Math.round(columnWidth * 0.32));
 
-  const measureItemLines = (itemsToDraw: KeyVal[], maxValueWidth: number) => {
+  const gpsItems: KeyVal[] = [];
+  if (latStr && lonStr) gpsItems.push({ label: 'GPS', value: `${latStr}, ${lonStr}` });
+  else if (latStr || lonStr) gpsItems.push({ label: 'GPS', value: [latStr, lonStr].filter(Boolean).join(', ') });
+  if (accStr) gpsItems.push({ label: 'Accuracy', value: accStr });
+  if (altStr) gpsItems.push({ label: 'Altitude', value: altStr });
+
+  const dateItems: KeyVal[] = [
+    { label: 'Date', value: dateStr },
+    { label: 'Time', value: formatOfficialTime(timestamp).replace(/:\d{2} (?=[AP]M)/, '') },
+    { label: 'Photo ID', value: photoNumber },
+  ];
+
+  // Location is deliberately measured across the full inner panel width.
+  // No max-line limit is supplied, so the complete address is retained.
+  ctx.font = valueFont;
+  const locationLabelWidth = Math.round(96 * s);
+  const locationValueWidth = Math.max(40, innerWidth - Math.round(34 * s) - locationLabelWidth - Math.round(12 * s));
+  const locationLines = addressLine ? wrapText(ctx, addressLine, locationValueWidth) : [];
+  const locationRowHeight = addressLine
+    ? Math.max(lineHeight, locationLines.length * lineHeight) + rowGap
+    : 0;
+
+  const measureColumn = (items: KeyVal[], maxValueWidth: number) => {
     ctx.font = valueFont;
-    return itemsToDraw.map((item) => ({
+    return items.map((item) => ({
       ...item,
-      lines: wrapText(ctx, item.value, maxValueWidth, item.label === 'Location' ? 2 : 1),
+      lines: wrapText(ctx, item.value, Math.max(40, maxValueWidth)),
     }));
   };
 
-  const leftMeasured = measureItemLines(leftItems, Math.max(40, leftColumnWidth - Math.round(34 * s) - labelWidthLeft - Math.round(12 * s)));
-  const rightMeasured = measureItemLines(rightItems, Math.max(40, rightColumnWidth - Math.round(34 * s) - labelWidthRight - Math.round(12 * s)));
-  const itemHeight = (item: { lines: string[] }) => Math.max(1, item.lines.length) * Math.round(21 * s) + rowGap;
+  const leftMeasured = measureColumn(
+    gpsItems,
+    columnWidth - Math.round(34 * s) - labelWidthLeft - Math.round(8 * s)
+  );
+  const rightMeasured = measureColumn(
+    dateItems,
+    columnWidth - Math.round(34 * s) - labelWidthRight - Math.round(8 * s)
+  );
+  const itemHeight = (item: { lines: string[] }) => Math.max(1, item.lines.length) * lineHeight + rowGap;
   const leftContentHeight = leftMeasured.reduce((sum, item) => sum + itemHeight(item), 0);
   const rightContentHeight = rightMeasured.reduce((sum, item) => sum + itemHeight(item), 0);
   const headerTop = pad + Math.round(3 * s);
   const headerHeight = Math.max(headerIconSize, headerLine + subtitleLine + Math.round(6 * s));
   const dividerYRelative = headerTop + headerHeight + Math.round(20 * s);
   const contentTopRelative = dividerYRelative + Math.round(27 * s);
-  const contentHeight = Math.max(leftContentHeight, rightContentHeight, qrImg ? qrSize + qrFramePad * 2 : 0);
+  const locationTopRelative = contentTopRelative;
+  const columnsTopRelative = contentTopRelative + locationRowHeight;
+  const columnsHeight = Math.max(leftContentHeight, rightContentHeight);
+  // Put the QR tile in its own bottom-right area to guarantee it never covers text.
+  const qrFooterHeight = qrImg ? qrFrameSize + Math.round(12 * s) : 0;
   const panelHeight = Math.min(
     canvas.height - margin * 2,
-    contentTopRelative + contentHeight + pad
+    columnsTopRelative + columnsHeight + qrFooterHeight + pad
   );
   const panelY = canvas.height - panelHeight - margin;
-  const leftX = panelX + pad;
-  const rightX = leftX + leftColumnWidth + columnGap;
-  const contentTop = panelY + contentTopRelative;
+  const locationTop = panelY + locationTopRelative;
+  const columnsTop = panelY + columnsTopRelative;
 
   ctx.save();
   drawRoundedRect(ctx, panelX, panelY, panelWidth, panelHeight, radius);
@@ -863,10 +801,10 @@ export async function generateStampedImage(
   ctx.fillStyle = 'rgba(148, 163, 184, 0.24)';
   ctx.fillRect(panelX + pad, panelY + dividerYRelative, panelWidth - pad * 2, Math.max(1, Math.round(1.2 * s)));
 
-  // Vertical divider between the two metadata columns.
+  // Vertical divider starts below the full-width Location row.
   const verticalDividerX = rightX - Math.round(columnGap / 2);
   ctx.fillStyle = 'rgba(148, 163, 184, 0.28)';
-  ctx.fillRect(verticalDividerX, contentTop, Math.max(1, Math.round(s)), Math.max(leftContentHeight, rightContentHeight));
+  ctx.fillRect(verticalDividerX, columnsTop, Math.max(1, Math.round(s)), Math.max(leftContentHeight, rightContentHeight));
 
   const drawFieldIcon = (x: number, y: number, label: string) => {
     const cx = x + Math.round(13 * s);
@@ -889,9 +827,6 @@ export async function generateStampedImage(
       ctx.beginPath(); ctx.arc(cx, cy, 10 * s, Math.PI * 0.1, Math.PI * 0.9); ctx.stroke();
     } else if (label === 'Altitude') {
       ctx.beginPath(); ctx.moveTo(cx - 10 * s, cy + 7 * s); ctx.lineTo(cx, cy - 8 * s); ctx.lineTo(cx + 10 * s, cy + 7 * s); ctx.closePath(); ctx.stroke();
-    } else if (label === 'Direction') {
-      ctx.beginPath(); ctx.arc(cx, cy, 9 * s, 0, Math.PI * 2); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(cx - 4 * s, cy + 4 * s); ctx.lineTo(cx + 5 * s, cy - 5 * s); ctx.lineTo(cx + 2 * s, cy + 3 * s); ctx.closePath(); ctx.fill();
     } else if (label === 'Date') {
       ctx.strokeRect(cx - 8 * s, cy - 7 * s, 16 * s, 15 * s);
       ctx.beginPath(); ctx.moveTo(cx - 8 * s, cy - 2 * s); ctx.lineTo(cx + 8 * s, cy - 2 * s); ctx.moveTo(cx - 4 * s, cy - 10 * s); ctx.lineTo(cx - 4 * s, cy - 4 * s); ctx.moveTo(cx + 4 * s, cy - 10 * s); ctx.lineTo(cx + 4 * s, cy - 4 * s); ctx.stroke();
@@ -905,8 +840,25 @@ export async function generateStampedImage(
     ctx.restore();
   };
 
-  const drawColumn = (itemsToDraw: Array<KeyVal & { lines: string[] }>, x: number, labelWidth: number, isRight = false) => {
-    let y = contentTop;
+  // Full-width Location row. The complete address wraps naturally and is never ellipsized.
+  if (addressLine) {
+    drawFieldIcon(leftX, locationTop, 'Location');
+    const locationTextX = leftX + Math.round(34 * s);
+    ctx.textBaseline = 'top';
+    ctx.font = labelFont;
+    ctx.fillStyle = '#A8B8CA';
+    ctx.fillText('Location', locationTextX, locationTop);
+    ctx.font = valueFont;
+    ctx.fillStyle = '#F8FAFC';
+    const locationValueX = locationTextX + locationLabelWidth;
+    locationLines.forEach((line, lineIndex) => {
+      ctx.fillText(line, locationValueX, locationTop + lineIndex * lineHeight);
+    });
+  }
+
+
+  const drawColumn = (itemsToDraw: Array<KeyVal & { lines: string[] }>, x: number, labelWidth: number) => {
+    let y = columnsTop;
     itemsToDraw.forEach((item) => {
       drawFieldIcon(x, y, item.label);
       const textX = x + Math.round(34 * s);
@@ -918,14 +870,14 @@ export async function generateStampedImage(
       ctx.fillStyle = '#F8FAFC';
       const valueX = textX + labelWidth;
       item.lines.forEach((line, lineIndex) => {
-        ctx.fillText(line, valueX, y + lineIndex * Math.round(21 * s));
+        ctx.fillText(line, valueX, y + lineIndex * lineHeight);
       });
       y += itemHeight(item);
     });
   };
 
   drawColumn(leftMeasured, leftX, labelWidthLeft);
-  drawColumn(rightMeasured, rightX, labelWidthRight, true);
+  drawColumn(rightMeasured, rightX, labelWidthRight);
 
   // QR tile anchored bottom-right, with enough padding to keep it clear of text.
   if (qrImg && qrSize > 0) {
