@@ -732,745 +732,224 @@ export async function generateStampedImage(
 
     : `Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif`;
 
-  const styleOpacity =
-
-    stampStyle === 'minimal'
-
-      ? 0.92
-
-      : stampStyle === 'modern_glass'
-
-      ? 0.92
-
-      : stampStyle === 'gov_inspection'
-
-      ? 0.95
-
-      : 0.92;
-
-  const panelOpacity =
-
-    typeof settings?.watermarkOpacity === 'number'
-
-      ? clamp(settings.watermarkOpacity, 0.84, 0.97)
-
-      : styleOpacity;
-
-  // Responsive scale factor depending on image orientation and dimensions
-
-  const referenceWidth = isLandscape ? 1600 : 1080;
-
-  let scale = clamp(canvas.width / referenceWidth, 0.75, 2.0);
-
-  // Compact modern card: keep the overlay small so more of the photo remains visible.
-
-  const maxPanelHeightRatio = isLandscape ? 0.42 : 0.40;
-
-  const createLayout = (s: number) => {
-
-    const pad = Math.round(17 * s);
-
-    const cornerRadius = Math.round(20 * s);
-
-    const availableCanvasWidth = canvas.width - pad * 2;
-
-    let panelWidth: number;
-
-    if (isLandscape) {
-
-      // Landscape: wider card, but still controlled
-
-      const desired = Math.round(
-
-        canvas.width * (qrImg ? 0.60 : 0.64)
-
-      );
-
-      const min = Math.round(620 * s);
-
-      panelWidth = Math.min(
-
-        availableCanvasWidth,
-
-        Math.max(min, desired)
-
-      );
-
-    } else {
-
-      // Portrait: bottom full-width panel
-
-      panelWidth = availableCanvasWidth;
-
-    }
-
-    // Keep portrait stamps inset from the edges; center landscape stamps.
-
-    const panelX = Math.round((canvas.width - panelWidth) / 2);
-
-    // Typography definitions
-
-    const fontHeader = `700 ${Math.round(21 * s)}px ${fontFamily}`;
-
-    const fontSubHeader = `500 ${Math.round(15 * s)}px ${fontFamily}`;
-
-    const fontLabel = `600 ${Math.round(12 * s)}px ${fontFamily}`;
-
-    const fontValue = `500 ${Math.round(13.5 * s)}px ${fontFamily}`;
-
-    const headerLineH = Math.round(25 * s);
-
-    const subHeaderLineH = Math.round(19 * s);
-
-    const itemLineH = Math.round(17 * s);
-
-    const itemGap = Math.round(3 * s);
-
-    const colonOffset = Math.round(4 * s);
-
-    const valueGap = Math.round(10 * s);
-
-    const colGap = Math.round(16 * s);
-
-    const logoSize = logoImg ? Math.round(42 * s) : 0;
-
-    const qrSize = qrImg ? Math.round(64 * s) : 0;
-
-    // Measure max label width for vertical alignment column
-
-    ctx.font = fontLabel;
-
-    let maxLabelWidth = 0;
-
-    items.forEach((item) => {
-
-      const w = ctx.measureText(item.label).width;
-
-      if (w > maxLabelWidth) {
-
-        maxLabelWidth = w;
-
-      }
-
-    });
-
-    const labelColumnWidth =
-
-      maxLabelWidth + colonOffset + valueGap;
-
-    const innerWidth = panelWidth - pad * 2;
-
-    // Use 2 columns only for landscape and only when QR is not enabled
-
-    const columns =
-
-      !qrImg &&
-
-      isLandscape &&
-
-      innerWidth >= Math.round(720 * s)
-
-        ? 2
-
-        : 1;
-
-    const columnWidth =
-
-      columns === 2
-
-        ? Math.floor((innerWidth - colGap) / 2)
-
-        : innerWidth;
-
-    const qrReserveWidth = qrImg
-
-      ? qrSize + Math.round(16 * s)
-
-      : 0;
-
-    let valueWidth =
-
-      columnWidth -
-
-      labelColumnWidth -
-
-      (columns === 1 ? qrReserveWidth : 0);
-
-    valueWidth = Math.max(
-
-      Math.round(120 * s),
-
-      valueWidth
-
-    );
-
-    const valueMaxLines = columns === 2 ? 2 : 3;
-
-    // Pre-calculate header lines
-
-    ctx.font = fontHeader;
-
-    const headerAvailableWidth = Math.max(
-
-      Math.round(120 * s),
-
-      innerWidth -
-
-        (logoImg ? logoSize + Math.round(12 * s) : 0)
-
-    );
-
-    const headerLines = wrapText(
-
-      ctx,
-
-      schoolName,
-
-      headerAvailableWidth,
-
-      2
-
-    );
-
-    ctx.font = fontSubHeader;
-
-    const subHeaderLines = wrapText(
-
-      ctx,
-
-      eventName,
-
-      innerWidth,
-
-      2
-
-    );
-
-    // Process item lines
-
-    ctx.font = fontValue;
-
-    const processed = items.map((item) => {
-
-      const valueLines = wrapText(
-
-        ctx,
-
-        item.value,
-
-        valueWidth,
-
-        valueMaxLines
-
-      );
-
-      const lineCount = Math.max(1, valueLines.length);
-
-      return {
-
-        label: item.label,
-
-        valueLines,
-
-        blockHeight: lineCount * itemLineH + itemGap,
-
-      };
-
-    });
-
-    const headerHeight =
-
-      headerLines.length * headerLineH;
-
-    const subHeaderHeight =
-
-      subHeaderLines.length > 0
-
-        ? subHeaderLines.length * subHeaderLineH +
-
-          Math.round(4 * s)
-
-        : 0;
-
-    const dividerSpace = Math.round(9 * s);
-
-    let columnsData: {
-
-      items: typeof processed;
-
-      height: number;
-
-    }[];
-
-    const totalItemHeight = processed.reduce(
-
-      (sum, item) => sum + item.blockHeight,
-
-      0
-
-    );
-
-    if (columns === 1) {
-
-      columnsData = [
-
-        {
-
-          items: processed,
-
-          height: totalItemHeight,
-
-        },
-
-      ];
-
-    } else {
-
-      // Split sequentially into two columns to preserve reading order
-
-      let acc = 0;
-
-      let splitIndex = processed.length;
-
-      for (let i = 0; i < processed.length; i++) {
-
-        acc += processed[i].blockHeight;
-
-        if (acc >= totalItemHeight / 2) {
-
-          splitIndex = i + 1;
-
-          break;
-
-        }
-
-      }
-
-      const left = processed.slice(0, splitIndex);
-
-      const right = processed.slice(splitIndex);
-
-      const leftHeight = left.reduce(
-
-        (sum, item) => sum + item.blockHeight,
-
-        0
-
-      );
-
-      const rightHeight = right.reduce(
-
-        (sum, item) => sum + item.blockHeight,
-
-        0
-
-      );
-
-      columnsData = [
-
-        { items: left, height: leftHeight },
-
-        { items: right, height: rightHeight },
-
-      ];
-
-    }
-
-    const maxColumnHeight = columnsData.reduce(
-
-      (max, col) => Math.max(max, col.height),
-
-      0
-
-    );
-
-    const qrReserveHeight = qrImg
-
-      ? qrSize + Math.round(12 * s)
-
-      : 0;
-
-    const contentHeight =
-
-      headerHeight +
-
-      subHeaderHeight +
-
-      dividerSpace +
-
-      maxColumnHeight +
-
-      qrReserveHeight;
-
-    const naturalPanelHeight = pad * 2 + contentHeight;
-
-    const maximumAllowedHeight = Math.min(
-
-      canvas.height - pad * 2,
-
-      Math.round(canvas.height * maxPanelHeightRatio)
-
-    );
-
-    const panelHeight = Math.min(
-
-      naturalPanelHeight,
-
-      canvas.height - pad * 2
-
-    );
-
-    const panelY = Math.max(
-
-      pad,
-
-      canvas.height - panelHeight - pad
-
-    );
-
-    const fits =
-
-      naturalPanelHeight <= maximumAllowedHeight;
-
-    return {
-
-      scale: s,
-
-      pad,
-
-      cornerRadius,
-
-      panelX,
-
-      panelY,
-
-      panelWidth,
-
-      panelHeight,
-
-      columns,
-
-      columnWidth,
-
-      colGap,
-
-      maxLabelWidth,
-
-      colonOffset,
-
-      valueGap,
-
-      labelColumnWidth,
-
-      valueWidth,
-
-      headerLines,
-
-      subHeaderLines,
-
-      columnsData,
-
-      logoSize,
-
-      qrSize,
-
-      fontHeader,
-
-      fontSubHeader,
-
-      fontLabel,
-
-      fontValue,
-
-      headerLineH,
-
-      subHeaderLineH,
-
-      itemLineH,
-
-      itemGap,
-
-      fits,
-
-    };
-
+  // Reference-matched dark glass stamp. Layout is based on the actual image
+  // dimensions; the QR code occupies a reserved area on the right, never a row.
+  const panelAlpha = typeof settings?.watermarkOpacity === 'number'
+    ? clamp(settings.watermarkOpacity, 0.78, 0.96)
+    : 0.88;
+
+  // Scale typography from source width without a tiny lower-bound scale.
+  const s = clamp(canvas.width / (isLandscape ? 1600 : 1080), 0.72, 1.8);
+  const margin = Math.round(canvas.width * 0.022);
+  const panelWidth = isLandscape
+    ? Math.round(canvas.width * 0.66)
+    : canvas.width - margin * 2;
+  const panelX = Math.round((canvas.width - panelWidth) / 2);
+  const pad = Math.round(22 * s);
+  const radius = Math.round(24 * s);
+  const headerFont = `700 ${Math.round(29 * s)}px ${fontFamily}`;
+  const subtitleFont = `500 ${Math.round(20 * s)}px ${fontFamily}`;
+  const labelFont = `500 ${Math.round(16 * s)}px ${fontFamily}`;
+  const valueFont = `500 ${Math.round(17 * s)}px ${fontFamily}`;
+  const rowGap = Math.round(17 * s);
+  const headerLine = Math.round(34 * s);
+  const subtitleLine = Math.round(25 * s);
+  const qrSize = qrImg ? Math.round(116 * s) : 0;
+  const qrFramePad = Math.round(7 * s);
+  const qrReserve = qrImg ? qrSize + qrFramePad * 2 + Math.round(20 * s) : 0;
+
+  // Match the supplied reference's compact information set and two-column order.
+  const displayItems: KeyVal[] = [];
+  if (addressLine) displayItems.push({ label: 'Location', value: addressLine });
+  if (latStr && lonStr) displayItems.push({ label: 'GPS', value: `${latStr}, ${lonStr}` });
+  else if (latStr || lonStr) displayItems.push({ label: 'GPS', value: [latStr, lonStr].filter(Boolean).join(', ') });
+  if (accStr) displayItems.push({ label: 'Accuracy', value: accStr });
+  if (altStr) displayItems.push({ label: 'Altitude', value: altStr });
+  if (directionStr) displayItems.push({ label: 'Direction', value: directionStr });
+  displayItems.push({ label: 'Date', value: dateStr });
+  displayItems.push({ label: 'Time', value: formatOfficialTime(timestamp).replace(/:\d{2} (?=[AP]M)/, '') });
+  displayItems.push({ label: 'Photo ID', value: photoNumber });
+
+  const leftItems = displayItems.filter((i) => ['Location', 'GPS', 'Accuracy', 'Altitude'].includes(i.label));
+  const rightItems = displayItems.filter((i) => ['Direction', 'Date', 'Time', 'Photo ID'].includes(i.label));
+  const innerWidth = panelWidth - pad * 2;
+  const headerIconSize = Math.round(66 * s);
+  const headerTextX = panelX + pad + headerIconSize + Math.round(20 * s);
+  const rightColumnWidth = Math.round(innerWidth * 0.39);
+  const columnGap = Math.round(28 * s);
+  const leftColumnWidth = innerWidth - rightColumnWidth - columnGap - (qrImg ? qrReserve : 0);
+  const labelWidthLeft = Math.min(Math.round(112 * s), Math.round(leftColumnWidth * 0.28));
+  const labelWidthRight = Math.min(Math.round(92 * s), Math.round(rightColumnWidth * 0.42));
+
+  const measureItemLines = (itemsToDraw: KeyVal[], maxValueWidth: number) => {
+    ctx.font = valueFont;
+    return itemsToDraw.map((item) => ({
+      ...item,
+      lines: wrapText(ctx, item.value, maxValueWidth, item.label === 'Location' ? 2 : 1),
+    }));
   };
 
-  let layout = createLayout(scale);
-
-  // Auto-shrink stamp until it fits nicely
-
-  let guard = 0;
-
-  while (
-
-    !layout.fits &&
-
-    scale > 0.62 &&
-
-    guard < 16
-
-  ) {
-
-    scale = Math.max(0.62, scale * 0.9);
-
-    layout = createLayout(scale);
-
-    guard += 1;
-
-  }
-
-  const s = layout.scale;
-
-  // ========================================================
-
-  // RENDER OFFICIAL DOCUMENT PANEL
-
-  // ========================================================
+  const leftMeasured = measureItemLines(leftItems, Math.max(40, leftColumnWidth - Math.round(34 * s) - labelWidthLeft - Math.round(12 * s)));
+  const rightMeasured = measureItemLines(rightItems, Math.max(40, rightColumnWidth - Math.round(34 * s) - labelWidthRight - Math.round(12 * s)));
+  const itemHeight = (item: { lines: string[] }) => Math.max(1, item.lines.length) * Math.round(21 * s) + rowGap;
+  const leftContentHeight = leftMeasured.reduce((sum, item) => sum + itemHeight(item), 0);
+  const rightContentHeight = rightMeasured.reduce((sum, item) => sum + itemHeight(item), 0);
+  const headerTop = pad + Math.round(3 * s);
+  const headerHeight = Math.max(headerIconSize, headerLine + subtitleLine + Math.round(6 * s));
+  const dividerYRelative = headerTop + headerHeight + Math.round(20 * s);
+  const contentTopRelative = dividerYRelative + Math.round(27 * s);
+  const contentHeight = Math.max(leftContentHeight, rightContentHeight, qrImg ? qrSize + qrFramePad * 2 : 0);
+  const panelHeight = Math.min(
+    canvas.height - margin * 2,
+    contentTopRelative + contentHeight + pad
+  );
+  const panelY = canvas.height - panelHeight - margin;
+  const leftX = panelX + pad;
+  const rightX = leftX + leftColumnWidth + columnGap;
+  const contentTop = panelY + contentTopRelative;
 
   ctx.save();
-
-  drawRoundedRect(
-
-    ctx,
-
-    layout.panelX,
-
-    layout.panelY,
-
-    layout.panelWidth,
-
-    layout.panelHeight,
-
-    layout.cornerRadius
-
-  );
-
-  // Dark translucent glass panel (Canvas cannot blur pixels behind itself).
-  const glassGradient = ctx.createLinearGradient(
-    layout.panelX, layout.panelY,
-    layout.panelX + layout.panelWidth, layout.panelY + layout.panelHeight
-  );
-  glassGradient.addColorStop(0, 'rgba(10, 18, 29, 0.90)');
-  glassGradient.addColorStop(0.52, 'rgba(13, 22, 32, 0.84)');
-  glassGradient.addColorStop(1, 'rgba(7, 13, 22, 0.91)');
+  drawRoundedRect(ctx, panelX, panelY, panelWidth, panelHeight, radius);
+  const glassGradient = ctx.createLinearGradient(panelX, panelY, panelX + panelWidth, panelY + panelHeight);
+  glassGradient.addColorStop(0, `rgba(9, 17, 27, ${panelAlpha})`);
+  glassGradient.addColorStop(0.52, `rgba(11, 20, 31, ${Math.max(0.72, panelAlpha - 0.06)})`);
+  glassGradient.addColorStop(1, `rgba(5, 11, 19, ${panelAlpha})`);
   ctx.fillStyle = glassGradient;
-
   ctx.fill();
-
-  // Clip content inside rounded panel
-
   ctx.clip();
 
-  // Slim blue accent for the selected modern inspection-card appearance.
-
-  ctx.fillStyle = 'rgba(34, 230, 248, 0.98)';
-
-  ctx.fillRect(layout.panelX, layout.panelY, Math.max(3, Math.round(3 * s)), layout.panelHeight);
-
-  let curY =
-
-    layout.panelY +
-
-    layout.pad +
-
-    Math.round(14 * s);
-
-  const curX = layout.panelX + layout.pad;
-
-  // Draw Logo if available
-
-  if (logoImg && layout.logoSize > 0) {
-
-    ctx.drawImage(
-
-      logoImg,
-
-      layout.panelX +
-
-        layout.panelWidth -
-
-        layout.pad -
-
-        layout.logoSize,
-
-      layout.panelY + layout.pad,
-
-      layout.logoSize,
-
-      layout.logoSize
-
-    );
-
-  }
-
-  // Draw Heading
-
-  ctx.fillStyle = '#F8FAFC';
-
-  ctx.font = layout.fontHeader;
-
-  layout.headerLines.forEach((line) => {
-
-    ctx.fillText(line, curX, curY);
-
-    curY += layout.headerLineH;
-
-  });
-
-  // Draw Subheading
-
-  if (layout.subHeaderLines.length > 0) {
-
-    ctx.fillStyle = '#A8B8CA';
-
-    ctx.font = layout.fontSubHeader;
-
-    layout.subHeaderLines.forEach((line) => {
-
-      ctx.fillText(line, curX, curY);
-
-      curY += layout.subHeaderLineH;
-
-    });
-
-    curY += Math.round(4 * s);
-
-  }
-
-  // Horizontal Divider Line
-
-  curY += Math.round(4 * s);
-
-  ctx.fillStyle = 'rgba(148, 163, 184, 0.24)';
-
-  ctx.fillRect(
-
-    curX,
-
-    curY,
-
-    layout.panelWidth - layout.pad * 2,
-
-    Math.max(1, Math.round(1 * s))
-
-  );
-
-  curY += Math.round(6 * s);
-
-  const contentStartY = curY;
-
-  // Draw Key-Value Columns
-
-  layout.columnsData.forEach((column, columnIndex) => {
-
-    const x =
-
-      layout.panelX +
-
-      layout.pad +
-
-      columnIndex *
-
-        (layout.columnWidth + layout.colGap);
-
-    let y = contentStartY;
-
-    column.items.forEach((item) => {
-
-      // Label
-
-      ctx.fillStyle = '#A8B8CA';
-
-      ctx.font = layout.fontLabel;
-
-      ctx.fillText(item.label, x, y);
-
-      // Colon
-
-      const colonX =
-
-        x + layout.maxLabelWidth + layout.colonOffset;
-
-      ctx.fillText(':', colonX, y);
-
-      // Value
-
-      const valueX = x + layout.labelColumnWidth;
-
-      ctx.fillStyle = '#F8FAFC';
-
-      ctx.font = layout.fontValue;
-
-      item.valueLines.forEach((line, lineIndex) => {
-
-        ctx.fillText(
-
-          line,
-
-          valueX,
-
-          y + lineIndex * layout.itemLineH
-
-        );
-
-      });
-
-      y += item.blockHeight;
-
-    });
-
-  });
-
-  // Draw QR code in its own cyan-framed tile; payload remains unchanged.
-  if (qrImg && layout.qrSize > 0) {
-    const qrX = layout.panelX + layout.panelWidth - layout.pad - layout.qrSize;
-    const qrY = layout.panelY + layout.panelHeight - layout.pad - layout.qrSize;
-    const qrFramePad = Math.max(3, Math.round(5 * s));
-    drawRoundedRect(
-      ctx,
-      qrX - qrFramePad,
-      qrY - qrFramePad,
-      layout.qrSize + qrFramePad * 2,
-      layout.qrSize + qrFramePad * 2,
-      Math.round(8 * s)
-    );
-    ctx.fillStyle = 'rgba(5, 12, 22, 0.96)';
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(34, 230, 248, 0.9)';
-    ctx.lineWidth = Math.max(1, Math.round(s));
-    ctx.stroke();
-    ctx.drawImage(qrImg, qrX, qrY, layout.qrSize, layout.qrSize);
-  }
-
-  ctx.restore();
-
-  // Subtle 1px monochrome border
-
-  ctx.save();
-
-  drawRoundedRect(
-
-    ctx,
-
-    layout.panelX,
-
-    layout.panelY,
-
-    layout.panelWidth,
-
-    layout.panelHeight,
-
-    layout.cornerRadius
-
-  );
-
-  ctx.strokeStyle = 'rgba(34, 230, 248, 0.95)';
-
-  ctx.lineWidth = Math.max(1, Math.round(1.35 * s));
-
+  // Cyan edge and signature vertical accent.
+  ctx.fillStyle = '#22E6F8';
+  ctx.fillRect(panelX, panelY + Math.round(24 * s), Math.max(4, Math.round(5 * s)), Math.min(Math.round(88 * s), panelHeight - Math.round(48 * s)));
+
+  // Circular university emblem with a simple graduation-cap line drawing.
+  const iconCx = panelX + pad + headerIconSize / 2;
+  const iconCy = panelY + headerTop + headerIconSize / 2;
+  ctx.beginPath();
+  ctx.arc(iconCx, iconCy, headerIconSize / 2, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(0, 210, 235, 0.16)';
+  ctx.fill();
+  ctx.strokeStyle = '#22E6F8';
+  ctx.lineWidth = Math.max(2, 2.2 * s);
+  ctx.beginPath();
+  ctx.moveTo(iconCx - 22 * s, iconCy - 4 * s);
+  ctx.lineTo(iconCx, iconCy - 13 * s);
+  ctx.lineTo(iconCx + 22 * s, iconCy - 4 * s);
+  ctx.lineTo(iconCx, iconCy + 5 * s);
+  ctx.closePath();
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(iconCx - 14 * s, iconCy + 2 * s);
+  ctx.lineTo(iconCx - 14 * s, iconCy + 13 * s);
+  ctx.quadraticCurveTo(iconCx, iconCy + 24 * s, iconCx + 14 * s, iconCy + 13 * s);
+  ctx.lineTo(iconCx + 14 * s, iconCy + 2 * s);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(iconCx + 22 * s, iconCy - 4 * s);
+  ctx.lineTo(iconCx + 22 * s, iconCy + 12 * s);
   ctx.stroke();
 
+  // Header and event subtitle.
+  ctx.textBaseline = 'top';
+  ctx.fillStyle = '#F8FAFC';
+  ctx.font = headerFont;
+  ctx.fillText(truncateToWidth(ctx, schoolName, panelWidth - (headerTextX - panelX) - pad), headerTextX, panelY + headerTop + Math.round(4 * s));
+  ctx.fillStyle = '#A8B8CA';
+  ctx.font = subtitleFont;
+  const subtitle = [eventName, organizer].filter(Boolean).join(' · ');
+  if (subtitle) ctx.fillText(truncateToWidth(ctx, subtitle, panelWidth - (headerTextX - panelX) - pad), headerTextX, panelY + headerTop + headerLine + Math.round(3 * s));
+
+  // Header divider.
+  ctx.fillStyle = 'rgba(148, 163, 184, 0.24)';
+  ctx.fillRect(panelX + pad, panelY + dividerYRelative, panelWidth - pad * 2, Math.max(1, Math.round(1.2 * s)));
+
+  // Vertical divider between the two metadata columns.
+  const verticalDividerX = rightX - Math.round(columnGap / 2);
+  ctx.fillStyle = 'rgba(148, 163, 184, 0.28)';
+  ctx.fillRect(verticalDividerX, contentTop, Math.max(1, Math.round(s)), Math.max(leftContentHeight, rightContentHeight));
+
+  const drawFieldIcon = (x: number, y: number, label: string) => {
+    const cx = x + Math.round(13 * s);
+    const cy = y + Math.round(8 * s);
+    ctx.save();
+    ctx.strokeStyle = '#22E6F8';
+    ctx.fillStyle = '#22E6F8';
+    ctx.lineWidth = Math.max(1.7, 2 * s);
+    if (label === 'Location') {
+      ctx.beginPath(); ctx.arc(cx, cy - 2 * s, 6 * s, 0, Math.PI * 2); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(cx - 4 * s, cy + 2 * s); ctx.lineTo(cx, cy + 10 * s); ctx.lineTo(cx + 4 * s, cy + 2 * s); ctx.stroke();
+    } else if (label === 'GPS') {
+      ctx.beginPath(); ctx.arc(cx, cy, 7 * s, 0, Math.PI * 2); ctx.stroke();
+      ctx.beginPath(); ctx.arc(cx, cy, 2 * s, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(cx - 11 * s, cy); ctx.lineTo(cx - 8 * s, cy); ctx.moveTo(cx + 8 * s, cy); ctx.lineTo(cx + 11 * s, cy); ctx.stroke();
+    } else if (label === 'Accuracy') {
+      ctx.beginPath(); ctx.arc(cx, cy, 7 * s, Math.PI * 1.1, Math.PI * 1.9); ctx.stroke();
+      ctx.beginPath(); ctx.arc(cx, cy, 10 * s, Math.PI * 1.1, Math.PI * 1.9); ctx.stroke();
+      ctx.beginPath(); ctx.arc(cx, cy, 7 * s, Math.PI * 0.1, Math.PI * 0.9); ctx.stroke();
+      ctx.beginPath(); ctx.arc(cx, cy, 10 * s, Math.PI * 0.1, Math.PI * 0.9); ctx.stroke();
+    } else if (label === 'Altitude') {
+      ctx.beginPath(); ctx.moveTo(cx - 10 * s, cy + 7 * s); ctx.lineTo(cx, cy - 8 * s); ctx.lineTo(cx + 10 * s, cy + 7 * s); ctx.closePath(); ctx.stroke();
+    } else if (label === 'Direction') {
+      ctx.beginPath(); ctx.arc(cx, cy, 9 * s, 0, Math.PI * 2); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(cx - 4 * s, cy + 4 * s); ctx.lineTo(cx + 5 * s, cy - 5 * s); ctx.lineTo(cx + 2 * s, cy + 3 * s); ctx.closePath(); ctx.fill();
+    } else if (label === 'Date') {
+      ctx.strokeRect(cx - 8 * s, cy - 7 * s, 16 * s, 15 * s);
+      ctx.beginPath(); ctx.moveTo(cx - 8 * s, cy - 2 * s); ctx.lineTo(cx + 8 * s, cy - 2 * s); ctx.moveTo(cx - 4 * s, cy - 10 * s); ctx.lineTo(cx - 4 * s, cy - 4 * s); ctx.moveTo(cx + 4 * s, cy - 10 * s); ctx.lineTo(cx + 4 * s, cy - 4 * s); ctx.stroke();
+    } else if (label === 'Time') {
+      ctx.beginPath(); ctx.arc(cx, cy, 9 * s, 0, Math.PI * 2); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx, cy - 5 * s); ctx.moveTo(cx, cy); ctx.lineTo(cx + 5 * s, cy + 3 * s); ctx.stroke();
+    } else {
+      ctx.strokeRect(cx - 8 * s, cy - 9 * s, 16 * s, 18 * s);
+      ctx.beginPath(); ctx.moveTo(cx - 4 * s, cy + 3 * s); ctx.lineTo(cx, cy - 2 * s); ctx.lineTo(cx + 4 * s, cy + 3 * s); ctx.stroke();
+    }
+    ctx.restore();
+  };
+
+  const drawColumn = (itemsToDraw: Array<KeyVal & { lines: string[] }>, x: number, labelWidth: number, isRight = false) => {
+    let y = contentTop;
+    itemsToDraw.forEach((item) => {
+      drawFieldIcon(x, y, item.label);
+      const textX = x + Math.round(34 * s);
+      ctx.textBaseline = 'top';
+      ctx.font = labelFont;
+      ctx.fillStyle = '#A8B8CA';
+      ctx.fillText(item.label, textX, y);
+      ctx.font = valueFont;
+      ctx.fillStyle = '#F8FAFC';
+      const valueX = textX + labelWidth;
+      item.lines.forEach((line, lineIndex) => {
+        ctx.fillText(line, valueX, y + lineIndex * Math.round(21 * s));
+      });
+      y += itemHeight(item);
+    });
+  };
+
+  drawColumn(leftMeasured, leftX, labelWidthLeft);
+  drawColumn(rightMeasured, rightX, labelWidthRight, true);
+
+  // QR tile anchored bottom-right, with enough padding to keep it clear of text.
+  if (qrImg && qrSize > 0) {
+    const frameSize = qrSize + qrFramePad * 2;
+    const qrX = panelX + panelWidth - pad - frameSize;
+    const qrY = panelY + panelHeight - pad - frameSize;
+    drawRoundedRect(ctx, qrX, qrY, frameSize, frameSize, Math.round(10 * s));
+    ctx.fillStyle = 'rgba(4, 10, 18, 0.96)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(34, 230, 248, 0.95)';
+    ctx.lineWidth = Math.max(1.5, 1.4 * s);
+    ctx.stroke();
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillRect(qrX + qrFramePad, qrY + qrFramePad, qrSize, qrSize);
+    ctx.drawImage(qrImg, qrX + qrFramePad, qrY + qrFramePad, qrSize, qrSize);
+  }
+  ctx.restore();
+
+  // Crisp cyan outline around the glass panel.
+  ctx.save();
+  drawRoundedRect(ctx, panelX, panelY, panelWidth, panelHeight, radius);
+  ctx.strokeStyle = 'rgba(34, 230, 248, 0.98)';
+  ctx.lineWidth = Math.max(1.5, 1.4 * s);
+  ctx.stroke();
   ctx.restore();
 
   // Output blob & dataUrl
