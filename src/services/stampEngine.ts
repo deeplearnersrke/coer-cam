@@ -727,43 +727,39 @@ export async function generateStampedImage(
 
     : 0.88;
 
-  const s = clamp(canvas.width / (isLandscape ? 1600 : 1080), 0.72, 1.8);
+  const s = clamp(canvas.width / (isLandscape ? 1600 : 1080), 0.62, 0.95);
 
-  const margin = Math.round(canvas.width * 0.022);
+  const margin = Math.round(canvas.width * 0.025);
 
-  // Keep the stamp broad in landscape too, so the address, metadata and QR
+  // Compact, horizontally centered panel in BOTH orientations.
 
-  // have enough room instead of compressing into a narrow card.
+  // Keep visible photo space around the panel, including portrait photos.
 
-  const panelWidth = isLandscape
-
-    ? Math.round(canvas.width * 0.84)
-
-    : canvas.width - margin * 2;
+  const panelWidth = Math.round(canvas.width * (isLandscape ? 0.76 : 0.88));
 
   const panelX = Math.round((canvas.width - panelWidth) / 2);
 
-  const pad = Math.round(22 * s);
+  const pad = Math.round(12 * s);
 
-  const radius = Math.round(24 * s);
+  const radius = Math.round(14 * s);
 
-  const headerFont = `700 ${Math.round(29 * s)}px ${fontFamily}`;
+  const headerFont = `700 ${Math.round(22 * s)}px ${fontFamily}`;
 
-  const subtitleFont = `500 ${Math.round(20 * s)}px ${fontFamily}`;
+  const subtitleFont = `500 ${Math.round(14 * s)}px ${fontFamily}`;
 
-  const labelFont = `500 ${Math.round(16 * s)}px ${fontFamily}`;
+  const labelFont = `500 ${Math.round(12 * s)}px ${fontFamily}`;
 
-  const valueFont = `500 ${Math.round(17 * s)}px ${fontFamily}`;
+  const valueFont = `500 ${Math.round(13 * s)}px ${fontFamily}`;
 
-  const rowGap = Math.round(13 * s);
+  const rowGap = Math.round(5 * s);
 
-  const lineHeight = Math.round(22 * s);
+  const lineHeight = Math.round(16 * s);
 
-  const headerLine = Math.round(34 * s);
+  const headerLine = Math.round(25 * s);
 
-  const subtitleLine = Math.round(25 * s);
+  const subtitleLine = Math.round(17 * s);
 
-  const qrSize = qrImg ? Math.round(96 * s) : 0;
+  const qrSize = qrImg ? Math.round(58 * s) : 0;
 
   const qrFramePad = Math.round(7 * s);
 
@@ -773,7 +769,7 @@ export async function generateStampedImage(
 
   const headerTextX = panelX + pad;
 
-  const columnGap = Math.round(28 * s);
+  const columnGap = Math.round(20 * s);
 
   const columnWidth = Math.floor((innerWidth - columnGap) / 2);
 
@@ -867,9 +863,9 @@ export async function generateStampedImage(
 
   const headerHeight = headerLine + subtitleLine + Math.round(6 * s);
 
-  const dividerYRelative = headerTop + headerHeight + Math.round(20 * s);
+  const dividerYRelative = headerTop + headerHeight + Math.round(12 * s);
 
-  const contentTopRelative = dividerYRelative + Math.round(27 * s);
+  const contentTopRelative = dividerYRelative + Math.round(17 * s);
 
   const locationTopRelative = contentTopRelative;
 
