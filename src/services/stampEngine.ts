@@ -602,13 +602,10 @@ export async function generateStampedImage(
 
   if (settings?.showQrCode) {
 
-    const qrText = `ID:${photoNumber}|LAT:${location.latitude.toFixed(
-
-      6
-
-    )}|LON:${location.longitude.toFixed(6)}`;
-
-    const qrData = await generateQrDataUrl(qrText);
+    const latitude = location.latitude;
+    const longitude = location.longitude;
+    const mapsUrl = `https://www.google.com/maps?q=${latitude},${longitude}`;
+    const qrData = await generateQrDataUrl(mapsUrl);
 
     if (qrData) {
 
@@ -724,7 +721,8 @@ export async function generateStampedImage(
   );
   const rightMeasured = measureColumn(
     dateItems,
-    columnWidth - Math.round(34 * s) - labelWidthRight - Math.round(8 * s)
+    columnWidth - Math.round(34 * s) - labelWidthRight - Math.round(8 * s) -
+      (qrImg ? qrFrameSize + Math.round(12 * s) : 0)
   );
   const itemHeight = (item: { lines: string[] }) => Math.max(1, item.lines.length) * lineHeight + rowGap;
   const leftContentHeight = leftMeasured.reduce((sum, item) => sum + itemHeight(item), 0);
@@ -736,11 +734,11 @@ export async function generateStampedImage(
   const locationTopRelative = contentTopRelative;
   const columnsTopRelative = contentTopRelative + locationRowHeight;
   const columnsHeight = Math.max(leftContentHeight, rightContentHeight);
-  // Put the QR tile in its own bottom-right area to guarantee it never covers text.
-  const qrFooterHeight = qrImg ? qrFrameSize + Math.round(12 * s) : 0;
+  // QR is placed beside the Date/Time/Photo ID stack, with its bottom aligned
+  // to the Photo ID row. No separate QR footer is needed, so the panel stays compact.
   const panelHeight = Math.min(
     canvas.height - margin * 2,
-    columnsTopRelative + columnsHeight + qrFooterHeight + pad
+    columnsTopRelative + columnsHeight + pad
   );
   const panelY = canvas.height - panelHeight - margin;
   const locationTop = panelY + locationTopRelative;
@@ -879,11 +877,20 @@ export async function generateStampedImage(
   drawColumn(leftMeasured, leftX, labelWidthLeft);
   drawColumn(rightMeasured, rightX, labelWidthRight);
 
-  // QR tile anchored bottom-right, with enough padding to keep it clear of text.
+  // QR tile sits to the right of the Date / Time / Photo ID stack.
+  // Its bottom aligns with the Photo ID row, in both portrait and landscape.
   if (qrImg && qrSize > 0) {
-    const frameSize = qrSize + qrFramePad * 2;
+    const frameSize = qrFrameSize;
     const qrX = panelX + panelWidth - pad - frameSize;
-    const qrY = panelY + panelHeight - pad - frameSize;
+    const photoIdIndex = rightMeasured.findIndex((item) => item.label === 'Photo ID');
+    let photoIdY = columnsTop;
+    for (let i = 0; i < photoIdIndex; i++) {
+      photoIdY += itemHeight(rightMeasured[i]);
+    }
+    const qrY = Math.max(
+      panelY + headerTop + headerHeight,
+      photoIdY + lineHeight - frameSize
+    );
     drawRoundedRect(ctx, qrX, qrY, frameSize, frameSize, Math.round(10 * s));
     ctx.fillStyle = 'rgba(4, 10, 18, 0.96)';
     ctx.fill();
