@@ -10,13 +10,9 @@ import {
 
 } from '../types';
 
-
-
 import { headingToCardinal } from './gps';
 
 import QRCode from 'qrcode';
-
-
 
 /**
 
@@ -41,8 +37,6 @@ function loadImage(src: string): Promise<HTMLImageElement> {
   });
 
 }
-
-
 
 /**
 
@@ -78,8 +72,6 @@ async function generateQrDataUrl(text: string): Promise<string | null> {
 
 }
 
-
-
 /**
 
  * Formats official date: 26 Jul 2026
@@ -90,11 +82,7 @@ function formatOfficialDate(timestamp: number): string {
 
   const d = new Date(timestamp);
 
-
-
   const day = String(d.getDate()).padStart(2, '0');
-
-
 
   const months = [
 
@@ -124,19 +112,13 @@ function formatOfficialDate(timestamp: number): string {
 
   ];
 
-
-
   const month = months[d.getMonth()];
 
   const year = d.getFullYear();
 
-
-
   return `${day} ${month} ${year}`;
 
 }
-
-
 
 /**
 
@@ -148,31 +130,19 @@ function formatOfficialTime(timestamp: number): string {
 
   const d = new Date(timestamp);
 
-
-
   let hours = d.getHours();
-
-
 
   const minutes = String(d.getMinutes()).padStart(2, '0');
 
   const seconds = String(d.getSeconds()).padStart(2, '0');
 
-
-
   const ampm = hours >= 12 ? 'PM' : 'AM';
 
-
-
   hours = hours % 12 || 12;
-
-
 
   return `${String(hours).padStart(2, '0')}:${minutes}:${seconds} ${ampm}`;
 
 }
-
-
 
 function formatLatDegrees(lat: number): string {
 
@@ -182,8 +152,6 @@ function formatLatDegrees(lat: number): string {
 
 }
 
-
-
 function formatLonDegrees(lon: number): string {
 
   const dir = lon >= 0 ? 'E' : 'W';
@@ -192,15 +160,11 @@ function formatLonDegrees(lon: number): string {
 
 }
 
-
-
 function clamp(value: number, min: number, max: number): number {
 
   return Math.min(max, Math.max(min, value));
 
 }
-
-
 
 function truncateToWidth(
 
@@ -214,19 +178,13 @@ function truncateToWidth(
 
   if (!text) return '';
 
-
-
   if (ctx.measureText(text).width <= maxWidth) {
 
     return text;
 
   }
 
-
-
   let result = text;
-
-
 
   while (
 
@@ -240,13 +198,9 @@ function truncateToWidth(
 
   }
 
-
-
   return `${result}…`;
 
 }
-
-
 
 /**
 
@@ -270,8 +224,6 @@ function wrapText(
 
   if (!text || maxWidth <= 0) return [];
 
-
-
   const words = String(text)
 
     .trim()
@@ -280,17 +232,11 @@ function wrapText(
 
     .filter(Boolean);
 
-
-
   if (words.length === 0) return [];
-
-
 
   const lines: string[] = [];
 
   let currentLine = '';
-
-
 
   for (const word of words) {
 
@@ -306,17 +252,11 @@ function wrapText(
 
       }
 
-
-
       let chunk = '';
-
-
 
       for (let i = 0; i < word.length; i++) {
 
         const char = word[i];
-
-
 
         if (ctx.measureText(chunk + char).width <= maxWidth) {
 
@@ -332,23 +272,17 @@ function wrapText(
 
       }
 
-
-
       currentLine = chunk;
 
       continue;
 
     }
 
-
-
     const testLine = currentLine
 
       ? `${currentLine} ${word}`
 
       : word;
-
-
 
     if (ctx.measureText(testLine).width <= maxWidth) {
 
@@ -364,21 +298,15 @@ function wrapText(
 
   }
 
-
-
   if (currentLine) {
 
     lines.push(currentLine);
 
   }
 
-
-
   if (maxLines > 0 && lines.length > maxLines) {
 
     const trimmed = lines.slice(0, maxLines);
-
-
 
     trimmed[maxLines - 1] = truncateToWidth(
 
@@ -390,19 +318,13 @@ function wrapText(
 
     );
 
-
-
     return trimmed;
 
   }
 
-
-
   return lines;
 
 }
-
-
 
 /**
 
@@ -460,8 +382,6 @@ function drawRoundedRect(
 
 }
 
-
-
 interface StampInputData {
 
   imageSrc: string; // Data URL or Blob URL
@@ -486,8 +406,6 @@ interface StampInputData {
 
 }
 
-
-
 interface KeyVal {
 
   label: string;
@@ -495,8 +413,6 @@ interface KeyVal {
   value: string;
 
 }
-
-
 
 /**
 
@@ -550,27 +466,17 @@ export async function generateStampedImage(
 
   } = input;
 
-
-
   const baseImg = await loadImage(imageSrc);
 
-
-
   const canvas = document.createElement('canvas');
-
-
 
   canvas.width =
 
     baseImg.naturalWidth || baseImg.width || 1920;
 
-
-
   canvas.height =
 
     baseImg.naturalHeight || baseImg.height || 1080;
-
-
 
   if (canvas.width <= 0 || canvas.height <= 0) {
 
@@ -578,11 +484,7 @@ export async function generateStampedImage(
 
   }
 
-
-
   const ctx = canvas.getContext('2d');
-
-
 
   if (!ctx) {
 
@@ -590,19 +492,13 @@ export async function generateStampedImage(
 
   }
 
-
-
   ctx.imageSmoothingEnabled = true;
 
   ctx.imageSmoothingQuality = 'high';
 
-
-
   // Draw original photo
 
   ctx.drawImage(baseImg, 0, 0, canvas.width, canvas.height);
-
-
 
   // Detect orientation (explicit or inferred from canvas aspect ratio)
 
@@ -611,8 +507,6 @@ export async function generateStampedImage(
     ? input.orientation === 'landscape'
 
     : canvas.width >= canvas.height;
-
-
 
   // Field values
 
@@ -626,8 +520,6 @@ export async function generateStampedImage(
 
     'INSTITUTION DOCUMENTATION';
 
-
-
   const eventName = event?.name || '';
 
   const department = event?.department || '';
@@ -640,19 +532,13 @@ export async function generateStampedImage(
 
   const logoUrl = event?.logoDataUrl || settings?.logoDataUrl || '';
 
-
-
   const dateStr = formatOfficialDate(timestamp);
 
   const timeStr = formatOfficialTime(timestamp);
 
-
-
   const hasCoords =
 
     location.latitude !== 0 || location.longitude !== 0;
-
-
 
   const latStr = hasCoords
 
@@ -660,15 +546,11 @@ export async function generateStampedImage(
 
     : '';
 
-
-
   const lonStr = hasCoords
 
     ? formatLonDegrees(location.longitude)
 
     : '';
-
-
 
   const accStr =
 
@@ -682,8 +564,6 @@ export async function generateStampedImage(
 
       : '';
 
-
-
   const altStr =
 
     location.altitude !== null &&
@@ -693,8 +573,6 @@ export async function generateStampedImage(
       ? `${Math.round(location.altitude)} m`
 
       : '';
-
-
 
   const directionStr =
 
@@ -708,11 +586,7 @@ export async function generateStampedImage(
 
       : '';
 
-
-
   const addr = location.address;
-
-
 
   const addressLine =
 
@@ -738,13 +612,9 @@ export async function generateStampedImage(
 
     locationName;
 
-
-
   // Build Key-Value list (ONLY non-empty values!)
 
   const items: KeyVal[] = [];
-
-
 
   if (department) {
 
@@ -752,15 +622,11 @@ export async function generateStampedImage(
 
   }
 
-
-
   if (organizer) {
 
     items.push({ label: 'Organizer', value: organizer });
 
   }
-
-
 
   if (addressLine) {
 
@@ -768,15 +634,11 @@ export async function generateStampedImage(
 
   }
 
-
-
   if (latStr) {
 
     items.push({ label: 'Latitude', value: latStr });
 
   }
-
-
 
   if (lonStr) {
 
@@ -784,15 +646,11 @@ export async function generateStampedImage(
 
   }
 
-
-
   if (accStr) {
 
     items.push({ label: 'Accuracy', value: accStr });
 
   }
-
-
 
   if (altStr) {
 
@@ -800,15 +658,11 @@ export async function generateStampedImage(
 
   }
 
-
-
   if (directionStr) {
 
     items.push({ label: 'Direction', value: directionStr });
 
   }
-
-
 
   items.push({ label: 'Date', value: dateStr });
 
@@ -816,21 +670,15 @@ export async function generateStampedImage(
 
   items.push({ label: 'Photo ID', value: photoNumber });
 
-
-
   if (remarks) {
 
     items.push({ label: 'Remarks', value: remarks });
 
   }
 
-
-
   // QR Code (Only if enabled in settings)
 
   let qrImg: HTMLImageElement | null = null;
-
-
 
   if (settings?.showQrCode) {
 
@@ -840,11 +688,7 @@ export async function generateStampedImage(
 
     )}|LON:${location.longitude.toFixed(6)}`;
 
-
-
     const qrData = await generateQrDataUrl(qrText);
-
-
 
     if (qrData) {
 
@@ -862,13 +706,9 @@ export async function generateStampedImage(
 
   }
 
-
-
   // School Logo (Optional)
 
   let logoImg: HTMLImageElement | null = null;
-
-
 
   if (logoUrl) {
 
@@ -884,19 +724,13 @@ export async function generateStampedImage(
 
   }
 
-
-
   const customFont = settings?.defaultFont?.trim();
-
-
 
   const fontFamily = customFont
 
     ? `${customFont}, Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif`
 
     : `Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif`;
-
-
 
   const styleOpacity =
 
@@ -914,8 +748,6 @@ export async function generateStampedImage(
 
       : 0.92;
 
-
-
   const panelOpacity =
 
     typeof settings?.watermarkOpacity === 'number'
@@ -924,22 +756,15 @@ export async function generateStampedImage(
 
       : styleOpacity;
 
-
-
   // Responsive scale factor depending on image orientation and dimensions
 
   const referenceWidth = isLandscape ? 1600 : 1080;
 
-
-
   let scale = clamp(canvas.width / referenceWidth, 0.75, 2.0);
 
-
-
   // Compact modern card: keep the overlay small so more of the photo remains visible.
+
   const maxPanelHeightRatio = isLandscape ? 0.42 : 0.40;
-
-
 
   const createLayout = (s: number) => {
 
@@ -947,17 +772,9 @@ export async function generateStampedImage(
 
     const cornerRadius = Math.round(20 * s);
 
-
-
-
-
     const availableCanvasWidth = canvas.width - pad * 2;
 
-
-
     let panelWidth: number;
-
-
 
     if (isLandscape) {
 
@@ -969,11 +786,7 @@ export async function generateStampedImage(
 
       );
 
-
-
       const min = Math.round(620 * s);
-
-
 
       panelWidth = Math.min(
 
@@ -988,12 +801,12 @@ export async function generateStampedImage(
       // Portrait: bottom full-width panel
 
       panelWidth = availableCanvasWidth;
+
     }
 
     // Keep portrait stamps inset from the edges; center landscape stamps.
+
     const panelX = Math.round((canvas.width - panelWidth) / 2);
-
-
 
     // Typography definitions
 
@@ -1005,8 +818,6 @@ export async function generateStampedImage(
 
     const fontValue = `500 ${Math.round(13.5 * s)}px ${fontFamily}`;
 
-
-
     const headerLineH = Math.round(25 * s);
 
     const subHeaderLineH = Math.round(19 * s);
@@ -1015,37 +826,25 @@ export async function generateStampedImage(
 
     const itemGap = Math.round(3 * s);
 
-
-
     const colonOffset = Math.round(4 * s);
 
     const valueGap = Math.round(10 * s);
 
     const colGap = Math.round(16 * s);
 
-
-
     const logoSize = logoImg ? Math.round(42 * s) : 0;
 
     const qrSize = qrImg ? Math.round(64 * s) : 0;
-
-
 
     // Measure max label width for vertical alignment column
 
     ctx.font = fontLabel;
 
-
-
     let maxLabelWidth = 0;
-
-
 
     items.forEach((item) => {
 
       const w = ctx.measureText(item.label).width;
-
-
 
       if (w > maxLabelWidth) {
 
@@ -1055,17 +854,11 @@ export async function generateStampedImage(
 
     });
 
-
-
     const labelColumnWidth =
 
       maxLabelWidth + colonOffset + valueGap;
 
-
-
     const innerWidth = panelWidth - pad * 2;
-
-
 
     // Use 2 columns only for landscape and only when QR is not enabled
 
@@ -1081,8 +874,6 @@ export async function generateStampedImage(
 
         : 1;
 
-
-
     const columnWidth =
 
       columns === 2
@@ -1091,15 +882,11 @@ export async function generateStampedImage(
 
         : innerWidth;
 
-
-
     const qrReserveWidth = qrImg
 
       ? qrSize + Math.round(16 * s)
 
       : 0;
-
-
 
     let valueWidth =
 
@@ -1109,8 +896,6 @@ export async function generateStampedImage(
 
       (columns === 1 ? qrReserveWidth : 0);
 
-
-
     valueWidth = Math.max(
 
       Math.round(120 * s),
@@ -1119,17 +904,11 @@ export async function generateStampedImage(
 
     );
 
-
-
     const valueMaxLines = columns === 2 ? 2 : 3;
-
-
 
     // Pre-calculate header lines
 
     ctx.font = fontHeader;
-
-
 
     const headerAvailableWidth = Math.max(
 
@@ -1140,8 +919,6 @@ export async function generateStampedImage(
         (logoImg ? logoSize + Math.round(12 * s) : 0)
 
     );
-
-
 
     const headerLines = wrapText(
 
@@ -1155,11 +932,7 @@ export async function generateStampedImage(
 
     );
 
-
-
     ctx.font = fontSubHeader;
-
-
 
     const subHeaderLines = wrapText(
 
@@ -1173,13 +946,9 @@ export async function generateStampedImage(
 
     );
 
-
-
     // Process item lines
 
     ctx.font = fontValue;
-
-
 
     const processed = items.map((item) => {
 
@@ -1195,11 +964,7 @@ export async function generateStampedImage(
 
       );
 
-
-
       const lineCount = Math.max(1, valueLines.length);
-
-
 
       return {
 
@@ -1213,13 +978,9 @@ export async function generateStampedImage(
 
     });
 
-
-
     const headerHeight =
 
       headerLines.length * headerLineH;
-
-
 
     const subHeaderHeight =
 
@@ -1231,11 +992,7 @@ export async function generateStampedImage(
 
         : 0;
 
-
-
     const dividerSpace = Math.round(9 * s);
-
-
 
     let columnsData: {
 
@@ -1245,8 +1002,6 @@ export async function generateStampedImage(
 
     }[];
 
-
-
     const totalItemHeight = processed.reduce(
 
       (sum, item) => sum + item.blockHeight,
@@ -1254,8 +1009,6 @@ export async function generateStampedImage(
       0
 
     );
-
-
 
     if (columns === 1) {
 
@@ -1279,13 +1032,9 @@ export async function generateStampedImage(
 
       let splitIndex = processed.length;
 
-
-
       for (let i = 0; i < processed.length; i++) {
 
         acc += processed[i].blockHeight;
-
-
 
         if (acc >= totalItemHeight / 2) {
 
@@ -1297,13 +1046,9 @@ export async function generateStampedImage(
 
       }
 
-
-
       const left = processed.slice(0, splitIndex);
 
       const right = processed.slice(splitIndex);
-
-
 
       const leftHeight = left.reduce(
 
@@ -1313,8 +1058,6 @@ export async function generateStampedImage(
 
       );
 
-
-
       const rightHeight = right.reduce(
 
         (sum, item) => sum + item.blockHeight,
@@ -1322,8 +1065,6 @@ export async function generateStampedImage(
         0
 
       );
-
-
 
       columnsData = [
 
@@ -1335,8 +1076,6 @@ export async function generateStampedImage(
 
     }
 
-
-
     const maxColumnHeight = columnsData.reduce(
 
       (max, col) => Math.max(max, col.height),
@@ -1345,15 +1084,11 @@ export async function generateStampedImage(
 
     );
 
-
-
     const qrReserveHeight = qrImg
 
       ? qrSize + Math.round(12 * s)
 
       : 0;
-
-
 
     const contentHeight =
 
@@ -1367,11 +1102,7 @@ export async function generateStampedImage(
 
       qrReserveHeight;
 
-
-
     const naturalPanelHeight = pad * 2 + contentHeight;
-
-
 
     const maximumAllowedHeight = Math.min(
 
@@ -1381,8 +1112,6 @@ export async function generateStampedImage(
 
     );
 
-
-
     const panelHeight = Math.min(
 
       naturalPanelHeight,
@@ -1390,8 +1119,6 @@ export async function generateStampedImage(
       canvas.height - pad * 2
 
     );
-
-
 
     const panelY = Math.max(
 
@@ -1401,13 +1128,9 @@ export async function generateStampedImage(
 
     );
 
-
-
     const fits =
 
       naturalPanelHeight <= maximumAllowedHeight;
-
-
 
     return {
 
@@ -1473,17 +1196,11 @@ export async function generateStampedImage(
 
   };
 
-
-
   let layout = createLayout(scale);
-
-
 
   // Auto-shrink stamp until it fits nicely
 
   let guard = 0;
-
-
 
   while (
 
@@ -1503,11 +1220,7 @@ export async function generateStampedImage(
 
   }
 
-
-
   const s = layout.scale;
-
-
 
   // ========================================================
 
@@ -1515,11 +1228,7 @@ export async function generateStampedImage(
 
   // ========================================================
 
-
-
   ctx.save();
-
-
 
   drawRoundedRect(
 
@@ -1537,20 +1246,26 @@ export async function generateStampedImage(
 
   );
 
-
-
-  ctx.fillStyle = `rgba(248, 250, 252, ${Math.max(0.88, panelOpacity)})`;
+  // Dark translucent glass panel (Canvas cannot blur pixels behind itself).
+  const glassGradient = ctx.createLinearGradient(
+    layout.panelX, layout.panelY,
+    layout.panelX + layout.panelWidth, layout.panelY + layout.panelHeight
+  );
+  glassGradient.addColorStop(0, 'rgba(10, 18, 29, 0.90)');
+  glassGradient.addColorStop(0.52, 'rgba(13, 22, 32, 0.84)');
+  glassGradient.addColorStop(1, 'rgba(7, 13, 22, 0.91)');
+  ctx.fillStyle = glassGradient;
 
   ctx.fill();
-
-
 
   // Clip content inside rounded panel
 
   ctx.clip();
 
   // Slim blue accent for the selected modern inspection-card appearance.
-  ctx.fillStyle = 'rgba(6, 182, 212, 0.98)';
+
+  ctx.fillStyle = 'rgba(34, 230, 248, 0.98)';
+
   ctx.fillRect(layout.panelX, layout.panelY, Math.max(3, Math.round(3 * s)), layout.panelHeight);
 
   let curY =
@@ -1561,11 +1276,7 @@ export async function generateStampedImage(
 
     Math.round(14 * s);
 
-
-
   const curX = layout.panelX + layout.pad;
-
-
 
   // Draw Logo if available
 
@@ -1593,15 +1304,11 @@ export async function generateStampedImage(
 
   }
 
-
-
   // Draw Heading
 
-  ctx.fillStyle = '#0F172A';
+  ctx.fillStyle = '#F8FAFC';
 
   ctx.font = layout.fontHeader;
-
-
 
   layout.headerLines.forEach((line) => {
 
@@ -1611,17 +1318,13 @@ export async function generateStampedImage(
 
   });
 
-
-
   // Draw Subheading
 
   if (layout.subHeaderLines.length > 0) {
 
-    ctx.fillStyle = '#334155';
+    ctx.fillStyle = '#A8B8CA';
 
     ctx.font = layout.fontSubHeader;
-
-
 
     layout.subHeaderLines.forEach((line) => {
 
@@ -1631,23 +1334,15 @@ export async function generateStampedImage(
 
     });
 
-
-
     curY += Math.round(4 * s);
 
   }
-
-
 
   // Horizontal Divider Line
 
   curY += Math.round(4 * s);
 
-
-
-  ctx.fillStyle = 'rgba(100, 116, 139, 0.28)';
-
-
+  ctx.fillStyle = 'rgba(148, 163, 184, 0.24)';
 
   ctx.fillRect(
 
@@ -1661,15 +1356,9 @@ export async function generateStampedImage(
 
   );
 
-
-
   curY += Math.round(6 * s);
 
-
-
   const contentStartY = curY;
-
-
 
   // Draw Key-Value Columns
 
@@ -1685,25 +1374,17 @@ export async function generateStampedImage(
 
         (layout.columnWidth + layout.colGap);
 
-
-
     let y = contentStartY;
-
-
 
     column.items.forEach((item) => {
 
       // Label
 
-      ctx.fillStyle = '#475569';
+      ctx.fillStyle = '#A8B8CA';
 
       ctx.font = layout.fontLabel;
 
-
-
       ctx.fillText(item.label, x, y);
-
-
 
       // Colon
 
@@ -1711,23 +1392,15 @@ export async function generateStampedImage(
 
         x + layout.maxLabelWidth + layout.colonOffset;
 
-
-
       ctx.fillText(':', colonX, y);
-
-
 
       // Value
 
       const valueX = x + layout.labelColumnWidth;
 
-
-
-      ctx.fillStyle = '#0F172A';
+      ctx.fillStyle = '#F8FAFC';
 
       ctx.font = layout.fontValue;
-
-
 
       item.valueLines.forEach((line, lineIndex) => {
 
@@ -1743,59 +1416,38 @@ export async function generateStampedImage(
 
       });
 
-
-
       y += item.blockHeight;
 
     });
 
   });
 
-
-
-  // Draw QR Code on bottom right if enabled
-
+  // Draw QR code in its own cyan-framed tile; payload remains unchanged.
   if (qrImg && layout.qrSize > 0) {
-
-    ctx.drawImage(
-
-      qrImg,
-
-      layout.panelX +
-
-        layout.panelWidth -
-
-        layout.pad -
-
-        layout.qrSize,
-
-      layout.panelY +
-
-        layout.panelHeight -
-
-        layout.pad -
-
-        layout.qrSize,
-
-      layout.qrSize,
-
-      layout.qrSize
-
+    const qrX = layout.panelX + layout.panelWidth - layout.pad - layout.qrSize;
+    const qrY = layout.panelY + layout.panelHeight - layout.pad - layout.qrSize;
+    const qrFramePad = Math.max(3, Math.round(5 * s));
+    drawRoundedRect(
+      ctx,
+      qrX - qrFramePad,
+      qrY - qrFramePad,
+      layout.qrSize + qrFramePad * 2,
+      layout.qrSize + qrFramePad * 2,
+      Math.round(8 * s)
     );
-
+    ctx.fillStyle = 'rgba(5, 12, 22, 0.96)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(34, 230, 248, 0.9)';
+    ctx.lineWidth = Math.max(1, Math.round(s));
+    ctx.stroke();
+    ctx.drawImage(qrImg, qrX, qrY, layout.qrSize, layout.qrSize);
   }
 
-
-
   ctx.restore();
-
-
 
   // Subtle 1px monochrome border
 
   ctx.save();
-
-
 
   drawRoundedRect(
 
@@ -1813,19 +1465,13 @@ export async function generateStampedImage(
 
   );
 
-
-
-  ctx.strokeStyle = 'rgba(6, 182, 212, 0.75)';
+  ctx.strokeStyle = 'rgba(34, 230, 248, 0.95)';
 
   ctx.lineWidth = Math.max(1, Math.round(1.35 * s));
 
   ctx.stroke();
 
-
-
   ctx.restore();
-
-
 
   // Output blob & dataUrl
 
@@ -1839,15 +1485,11 @@ export async function generateStampedImage(
 
   };
 
-
-
   const fallbackQuality = settings?.exportQuality
 
     ? exportQualityMap[settings.exportQuality] ?? 0.92
 
     : 0.92;
-
-
 
   const quality = clamp(
 
@@ -1859,11 +1501,7 @@ export async function generateStampedImage(
 
   );
 
-
-
   const dataUrl = canvas.toDataURL('image/jpeg', quality);
-
-
 
   const blob = await new Promise<Blob>((resolve) => {
 
@@ -1878,8 +1516,6 @@ export async function generateStampedImage(
     );
 
   });
-
-
 
   return { blob, dataUrl };
 
