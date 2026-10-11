@@ -34,7 +34,9 @@ export interface SchoolEvent {
   organizer?: string;
   locationName?: string;
   remarks?: string;
-  logoDataUrl?: string;
+  logoDataUrl?: string; // Legacy school/event logo; retained for compatibility.
+  logoADataUrl?: string; // Optional top-left event logo.
+  logoBDataUrl?: string; // Optional top-center event logo.
   stampStyle: StampStyle;
   photoPrefix: string;
   currentSeqNumber: number;
@@ -46,7 +48,7 @@ export interface SchoolEvent {
 export interface GeoPhotoMetadata {
   width: number;
   height: number;
-  fileSize: number; // bytes
+  fileSize: number;
   orientation?: 'portrait' | 'landscape';
   deviceOrientation?: string;
   compassDirection?: string;
@@ -64,15 +66,10 @@ export interface GeoPhoto {
   locationName?: string;
   remarks?: string;
   orientation?: 'portrait' | 'landscape';
-
-  // Images stored as Blob in IndexedDB
   originalBlob: Blob;
   stampedBlob: Blob;
-
-  // Data URLs generated dynamically for UI preview
   originalDataUrl?: string;
   stampedDataUrl?: string;
-
   photoNumber: string;
   location: GeoLocationData;
   timestamp: number;
@@ -81,12 +78,12 @@ export interface GeoPhoto {
 }
 
 export interface AppSettings {
-  id?: string; // single row ID 'default'
+  id?: string;
   schoolName: string;
   defaultEventId?: string;
   logoDataUrl?: string;
   defaultStampStyle: StampStyle;
-  imageQuality: number; // 0.5 to 1.0
+  imageQuality: number;
   theme: 'light' | 'dark' | 'system';
   exportQuality: 'high' | 'medium' | 'compact';
   defaultFont: string;

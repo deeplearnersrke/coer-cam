@@ -11,7 +11,12 @@ import {
 } from '../types';
 
 
+
+import { headingToCardinal } from './gps';
+
 import QRCode from 'qrcode';
+
+
 
 /**
 
@@ -37,6 +42,8 @@ function loadImage(src: string): Promise<HTMLImageElement> {
 
 }
 
+
+
 /**
 
  * Generates a QR Code as DataURL containing photo metadata
@@ -47,17 +54,20 @@ async function generateQrDataUrl(text: string): Promise<string | null> {
 
   try {
 
-    // Generate a high-resolution QR with a proper quiet zone and error correction.
-    // The canvas may later scale it down, so generate at a larger source size.
     return await QRCode.toDataURL(text, {
-      // Medium correction keeps the URL QR less dense and easier for phone cameras to scan.
-      errorCorrectionLevel: 'M',
-      margin: 4,
-      width: 512,
+
+      margin: 1,
+
+      width: 120,
+
       color: {
-        dark: '#000000',
-        light: '#FFFFFF',
+
+        dark: '#ffffff',
+
+        light: '#00000000',
+
       },
+
     });
 
   } catch (err) {
@@ -67,6 +77,8 @@ async function generateQrDataUrl(text: string): Promise<string | null> {
   }
 
 }
+
+
 
 /**
 
@@ -78,7 +90,11 @@ function formatOfficialDate(timestamp: number): string {
 
   const d = new Date(timestamp);
 
+
+
   const day = String(d.getDate()).padStart(2, '0');
+
+
 
   const months = [
 
@@ -108,13 +124,19 @@ function formatOfficialDate(timestamp: number): string {
 
   ];
 
+
+
   const month = months[d.getMonth()];
 
   const year = d.getFullYear();
 
+
+
   return `${day} ${month} ${year}`;
 
 }
+
+
 
 /**
 
@@ -126,19 +148,31 @@ function formatOfficialTime(timestamp: number): string {
 
   const d = new Date(timestamp);
 
+
+
   let hours = d.getHours();
+
+
 
   const minutes = String(d.getMinutes()).padStart(2, '0');
 
   const seconds = String(d.getSeconds()).padStart(2, '0');
 
+
+
   const ampm = hours >= 12 ? 'PM' : 'AM';
 
+
+
   hours = hours % 12 || 12;
+
+
 
   return `${String(hours).padStart(2, '0')}:${minutes}:${seconds} ${ampm}`;
 
 }
+
+
 
 function formatLatDegrees(lat: number): string {
 
@@ -148,6 +182,8 @@ function formatLatDegrees(lat: number): string {
 
 }
 
+
+
 function formatLonDegrees(lon: number): string {
 
   const dir = lon >= 0 ? 'E' : 'W';
@@ -156,11 +192,15 @@ function formatLonDegrees(lon: number): string {
 
 }
 
+
+
 function clamp(value: number, min: number, max: number): number {
 
   return Math.min(max, Math.max(min, value));
 
 }
+
+
 
 function truncateToWidth(
 
@@ -174,13 +214,19 @@ function truncateToWidth(
 
   if (!text) return '';
 
+
+
   if (ctx.measureText(text).width <= maxWidth) {
 
     return text;
 
   }
 
+
+
   let result = text;
+
+
 
   while (
 
@@ -194,9 +240,13 @@ function truncateToWidth(
 
   }
 
+
+
   return `${result}…`;
 
 }
+
+
 
 /**
 
@@ -220,6 +270,8 @@ function wrapText(
 
   if (!text || maxWidth <= 0) return [];
 
+
+
   const words = String(text)
 
     .trim()
@@ -228,11 +280,17 @@ function wrapText(
 
     .filter(Boolean);
 
+
+
   if (words.length === 0) return [];
+
+
 
   const lines: string[] = [];
 
   let currentLine = '';
+
+
 
   for (const word of words) {
 
@@ -248,11 +306,17 @@ function wrapText(
 
       }
 
+
+
       let chunk = '';
+
+
 
       for (let i = 0; i < word.length; i++) {
 
         const char = word[i];
+
+
 
         if (ctx.measureText(chunk + char).width <= maxWidth) {
 
@@ -268,17 +332,23 @@ function wrapText(
 
       }
 
+
+
       currentLine = chunk;
 
       continue;
 
     }
 
+
+
     const testLine = currentLine
 
       ? `${currentLine} ${word}`
 
       : word;
+
+
 
     if (ctx.measureText(testLine).width <= maxWidth) {
 
@@ -294,15 +364,21 @@ function wrapText(
 
   }
 
+
+
   if (currentLine) {
 
     lines.push(currentLine);
 
   }
 
+
+
   if (maxLines > 0 && lines.length > maxLines) {
 
     const trimmed = lines.slice(0, maxLines);
+
+
 
     trimmed[maxLines - 1] = truncateToWidth(
 
@@ -314,13 +390,19 @@ function wrapText(
 
     );
 
+
+
     return trimmed;
 
   }
 
+
+
   return lines;
 
 }
+
+
 
 /**
 
@@ -378,6 +460,8 @@ function drawRoundedRect(
 
 }
 
+
+
 interface StampInputData {
 
   imageSrc: string; // Data URL or Blob URL
@@ -402,6 +486,8 @@ interface StampInputData {
 
 }
 
+
+
 interface KeyVal {
 
   label: string;
@@ -409,6 +495,8 @@ interface KeyVal {
   value: string;
 
 }
+
+
 
 /**
 
@@ -462,17 +550,27 @@ export async function generateStampedImage(
 
   } = input;
 
+
+
   const baseImg = await loadImage(imageSrc);
 
+
+
   const canvas = document.createElement('canvas');
+
+
 
   canvas.width =
 
     baseImg.naturalWidth || baseImg.width || 1920;
 
+
+
   canvas.height =
 
     baseImg.naturalHeight || baseImg.height || 1080;
+
+
 
   if (canvas.width <= 0 || canvas.height <= 0) {
 
@@ -480,7 +578,11 @@ export async function generateStampedImage(
 
   }
 
+
+
   const ctx = canvas.getContext('2d');
+
+
 
   if (!ctx) {
 
@@ -488,13 +590,20 @@ export async function generateStampedImage(
 
   }
 
+
+
   ctx.imageSmoothingEnabled = true;
 
   ctx.imageSmoothingQuality = 'high';
 
+
+
   // Draw original photo
 
   ctx.drawImage(baseImg, 0, 0, canvas.width, canvas.height);
+
+
+
 
   // Detect orientation (explicit or inferred from canvas aspect ratio)
 
@@ -503,6 +612,8 @@ export async function generateStampedImage(
     ? input.orientation === 'landscape'
 
     : canvas.width >= canvas.height;
+
+
 
   // Field values
 
@@ -516,22 +627,33 @@ export async function generateStampedImage(
 
     'INSTITUTION DOCUMENTATION';
 
+
+
   const eventName = event?.name || '';
 
+  const department = event?.department || '';
 
   const organizer = event?.organizer || '';
 
   const locationName = event?.locationName || '';
 
+  const remarks = event?.remarks || input.customRemarks || '';
 
   const logoUrl = event?.logoDataUrl || settings?.logoDataUrl || '';
 
+
+
   const dateStr = formatOfficialDate(timestamp);
+
+  const timeStr = formatOfficialTime(timestamp);
+
 
 
   const hasCoords =
 
     location.latitude !== 0 || location.longitude !== 0;
+
+
 
   const latStr = hasCoords
 
@@ -539,11 +661,15 @@ export async function generateStampedImage(
 
     : '';
 
+
+
   const lonStr = hasCoords
 
     ? formatLonDegrees(location.longitude)
 
     : '';
+
+
 
   const accStr =
 
@@ -557,6 +683,8 @@ export async function generateStampedImage(
 
       : '';
 
+
+
   const altStr =
 
     location.altitude !== null &&
@@ -567,7 +695,25 @@ export async function generateStampedImage(
 
       : '';
 
+
+
+  const directionStr =
+
+    settings?.showCompass &&
+
+    typeof location.heading === 'number' &&
+
+    !Number.isNaN(location.heading)
+
+      ? headingToCardinal(location.heading)
+
+      : '';
+
+
+
   const addr = location.address;
+
+
 
   const addressLine =
 
@@ -593,21 +739,113 @@ export async function generateStampedImage(
 
     locationName;
 
+
+
+  // Build Key-Value list (ONLY non-empty values!)
+
+  const items: KeyVal[] = [];
+
+
+
+  if (department) {
+
+    items.push({ label: 'Department', value: department });
+
+  }
+
+
+
+  if (organizer) {
+
+    items.push({ label: 'Organizer', value: organizer });
+
+  }
+
+
+
+  if (addressLine) {
+
+    items.push({ label: 'Location', value: addressLine });
+
+  }
+
+
+
+  if (latStr) {
+
+    items.push({ label: 'Latitude', value: latStr });
+
+  }
+
+
+
+  if (lonStr) {
+
+    items.push({ label: 'Longitude', value: lonStr });
+
+  }
+
+
+
+  if (accStr) {
+
+    items.push({ label: 'Accuracy', value: accStr });
+
+  }
+
+
+
+  if (altStr) {
+
+    items.push({ label: 'Altitude', value: altStr });
+
+  }
+
+
+
+  if (directionStr) {
+
+    items.push({ label: 'Direction', value: directionStr });
+
+  }
+
+
+
+  items.push({ label: 'Date', value: dateStr });
+
+  items.push({ label: 'Time', value: timeStr });
+
+  items.push({ label: 'Photo ID', value: photoNumber });
+
+
+
+  if (remarks) {
+
+    items.push({ label: 'Remarks', value: remarks });
+
+  }
+
+
+
   // QR Code (Only if enabled in settings)
 
   let qrImg: HTMLImageElement | null = null;
 
-  if (
-    settings?.showQrCode &&
-    Number.isFinite(location.latitude) &&
-    Number.isFinite(location.longitude) &&
-    (location.latitude !== 0 || location.longitude !== 0)
-  ) {
 
-    const latitude = location.latitude;
-    const longitude = location.longitude;
-    const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${latitude},${longitude}`)}`;
-    const qrData = await generateQrDataUrl(mapsUrl);
+
+  if (settings?.showQrCode) {
+
+    const qrText = `ID:${photoNumber}|LAT:${location.latitude.toFixed(
+
+      6
+
+    )}|LON:${location.longitude.toFixed(6)}`;
+
+
+
+    const qrData = await generateQrDataUrl(qrText);
+
+
 
     if (qrData) {
 
@@ -625,9 +863,13 @@ export async function generateStampedImage(
 
   }
 
+
+
   // School Logo (Optional)
 
   let logoImg: HTMLImageElement | null = null;
+
+
 
   if (logoUrl) {
 
@@ -643,7 +885,64 @@ export async function generateStampedImage(
 
   }
 
+
+
+  // Optional Logo A / Logo B and fixed D-Cam brand logo.
+  // Put d-cam-logo.png in the public folder.
+  let logoAImg: HTMLImageElement | null = null;
+  let logoBImg: HTMLImageElement | null = null;
+  let brandLogoImg: HTMLImageElement | null = null;
+
+  try {
+    if (event?.logoADataUrl) logoAImg = await loadImage(event.logoADataUrl);
+  } catch {
+    // Optional logo: continue if unavailable.
+  }
+
+  try {
+    if (event?.logoBDataUrl) logoBImg = await loadImage(event.logoBDataUrl);
+  } catch {
+    // Optional logo: continue if unavailable.
+  }
+
+  try {
+    brandLogoImg = await loadImage(`${import.meta.env.BASE_URL}d-cam-logo.png`);
+  } catch {
+    // Continue stamping if the brand asset is missing.
+  }
+
+  // Draw top logos on the original photo without changing its dimensions.
+  // Positions: Logo A top-left, Logo B top-center, D-Cam brand top-right.
+  const drawTopLogo = (
+    img: HTMLImageElement | null,
+    position: 'left' | 'center' | 'right'
+  ) => {
+    if (!img || !img.naturalWidth || !img.naturalHeight) return;
+
+    const margin = Math.round(canvas.width * 0.025);
+    const maxWidth = canvas.width * 0.12;
+    const maxHeight = canvas.height * 0.12;
+    const scale = Math.min(maxWidth / img.naturalWidth, maxHeight / img.naturalHeight, 1);
+    const width = img.naturalWidth * scale;
+    const height = img.naturalHeight * scale;
+    const x = position === 'left'
+      ? margin
+      : position === 'center'
+        ? (canvas.width - width) / 2
+        : canvas.width - width - margin;
+
+    ctx.save();
+    ctx.drawImage(img, x, margin, width, height);
+    ctx.restore();
+  };
+
+  drawTopLogo(logoAImg, 'left');
+  drawTopLogo(logoBImg, 'center');
+  drawTopLogo(brandLogoImg, 'right');
+
   const customFont = settings?.defaultFont?.trim();
+
+
 
   const fontFamily = customFont
 
@@ -651,279 +950,938 @@ export async function generateStampedImage(
 
     : `Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif`;
 
-  // Reference-matched dark glass stamp. Location gets a full-width row;
-  // the remaining metadata stays in two columns. Direction is intentionally omitted.
-  const panelAlpha = typeof settings?.watermarkOpacity === 'number'
-    ? clamp(settings.watermarkOpacity, 0.78, 0.96)
-    : 0.88;
 
-  const s = clamp(canvas.width / (isLandscape ? 1600 : 1080), 0.72, 1.8);
-  const margin = Math.round(canvas.width * 0.022);
-  // Keep the stamp broad in landscape too, so the address, metadata and QR
-  // have enough room instead of compressing into a narrow card.
-  const panelWidth = isLandscape
-    ? Math.round(canvas.width * 0.84)
-    : canvas.width - margin * 2;
-  const panelX = Math.round((canvas.width - panelWidth) / 2);
-  const pad = Math.round(22 * s);
-  const radius = Math.round(24 * s);
-  const headerFont = `700 ${Math.round(29 * s)}px ${fontFamily}`;
-  const subtitleFont = `500 ${Math.round(20 * s)}px ${fontFamily}`;
-  const labelFont = `500 ${Math.round(16 * s)}px ${fontFamily}`;
-  const valueFont = `500 ${Math.round(17 * s)}px ${fontFamily}`;
-  const rowGap = Math.round(13 * s);
-  const lineHeight = Math.round(22 * s);
-  const headerLine = Math.round(34 * s);
-  const subtitleLine = Math.round(25 * s);
-  const qrSize = qrImg ? Math.round(96 * s) : 0;
-  const qrFramePad = Math.round(7 * s);
-  const qrFrameSize = qrImg ? qrSize + qrFramePad * 2 : 0;
 
-  const innerWidth = panelWidth - pad * 2;
-  const headerIconSize = Math.round(66 * s);
-  const headerTextX = panelX + pad + headerIconSize + Math.round(20 * s);
-  const columnGap = Math.round(28 * s);
-  const columnWidth = Math.floor((innerWidth - columnGap) / 2);
-  const leftX = panelX + pad;
-  const rightX = leftX + columnWidth + columnGap;
-  const labelWidthLeft = Math.min(Math.round(100 * s), Math.round(columnWidth * 0.36));
-  const labelWidthRight = Math.min(Math.round(78 * s), Math.round(columnWidth * 0.32));
+  const styleOpacity =
 
-  const gpsItems: KeyVal[] = [];
-  if (latStr && lonStr) gpsItems.push({ label: 'GPS', value: `${latStr}, ${lonStr}` });
-  else if (latStr || lonStr) gpsItems.push({ label: 'GPS', value: [latStr, lonStr].filter(Boolean).join(', ') });
-  if (accStr) gpsItems.push({ label: 'Accuracy', value: accStr });
-  if (altStr) gpsItems.push({ label: 'Altitude', value: altStr });
+    stampStyle === 'minimal'
 
-  const dateItems: KeyVal[] = [
-    { label: 'Date', value: dateStr },
-    { label: 'Time', value: formatOfficialTime(timestamp).replace(/:\d{2} (?=[AP]M)/, '') },
-    { label: 'Photo ID', value: photoNumber },
-  ];
+      ? 0.58
 
-  // Location is deliberately measured across the full inner panel width.
-  // No max-line limit is supplied, so the complete address is retained.
-  ctx.font = valueFont;
-  const locationLabelWidth = Math.round(96 * s);
-  const locationValueWidth = Math.max(40, innerWidth - Math.round(34 * s) - locationLabelWidth - Math.round(12 * s));
-  const locationLines = addressLine ? wrapText(ctx, addressLine, locationValueWidth) : [];
-  const locationRowHeight = addressLine
-    ? Math.max(lineHeight, locationLines.length * lineHeight) + rowGap
-    : 0;
+      : stampStyle === 'modern_glass'
 
-  const measureColumn = (items: KeyVal[], maxValueWidth: number) => {
-    ctx.font = valueFont;
-    return items.map((item) => ({
-      ...item,
-      lines: wrapText(ctx, item.value, Math.max(40, maxValueWidth)),
-    }));
+      ? 0.62
+
+      : stampStyle === 'gov_inspection'
+
+      ? 0.82
+
+      : 0.76;
+
+
+
+  const panelOpacity =
+
+    typeof settings?.watermarkOpacity === 'number'
+
+      ? clamp(settings.watermarkOpacity, 0.35, 0.92)
+
+      : styleOpacity;
+
+
+
+  // Responsive scale factor depending on image orientation and dimensions
+
+  const referenceWidth = isLandscape ? 1600 : 1080;
+
+
+
+  let scale = clamp(canvas.width / referenceWidth, 0.75, 2.0);
+
+
+
+  // Compact modern card: keep the overlay small so more of the photo remains visible.
+  const maxPanelHeightRatio = isLandscape ? 0.42 : 0.36;
+
+
+
+  const createLayout = (s: number) => {
+
+    const pad = Math.round(13 * s);
+
+    const cornerRadius = Math.round(16 * s);
+
+
+
+
+
+    const availableCanvasWidth = canvas.width - pad * 2;
+
+
+
+    let panelWidth: number;
+
+
+
+    if (isLandscape) {
+
+      // Landscape: wider card, but still controlled
+
+      const desired = Math.round(
+
+        canvas.width * (qrImg ? 0.46 : 0.56)
+
+      );
+
+
+
+      const min = Math.round(520 * s);
+
+
+
+      panelWidth = Math.min(
+
+        availableCanvasWidth,
+
+        Math.max(min, desired)
+
+      );
+
+    } else {
+
+      // Portrait: bottom full-width panel
+
+      panelWidth = availableCanvasWidth;
+    }
+
+    // Keep portrait stamps inset from the edges; center landscape stamps.
+    const panelX = isLandscape
+      ? Math.round((canvas.width - panelWidth) / 2)
+      : pad;
+
+
+
+    // Typography definitions
+
+    const fontHeader = `700 ${Math.round(18 * s)}px ${fontFamily}`;
+
+    const fontSubHeader = `500 ${Math.round(13 * s)}px ${fontFamily}`;
+
+    const fontLabel = `500 ${Math.round(11 * s)}px ${fontFamily}`;
+
+    const fontValue = `400 ${Math.round(11.5 * s)}px ${fontFamily}`;
+
+
+
+    const headerLineH = Math.round(21 * s);
+
+    const subHeaderLineH = Math.round(16 * s);
+
+    const itemLineH = Math.round(14 * s);
+
+    const itemGap = Math.round(1.5 * s);
+
+
+
+    const colonOffset = Math.round(4 * s);
+
+    const valueGap = Math.round(10 * s);
+
+    const colGap = Math.round(16 * s);
+
+
+
+    const logoSize = logoImg ? Math.round(38 * s) : 0;
+
+    const qrSize = qrImg ? Math.round(56 * s) : 0;
+
+
+
+    // Measure max label width for vertical alignment column
+
+    ctx.font = fontLabel;
+
+
+
+    let maxLabelWidth = 0;
+
+
+
+    items.forEach((item) => {
+
+      const w = ctx.measureText(item.label).width;
+
+
+
+      if (w > maxLabelWidth) {
+
+        maxLabelWidth = w;
+
+      }
+
+    });
+
+
+
+    const labelColumnWidth =
+
+      maxLabelWidth + colonOffset + valueGap;
+
+
+
+    const innerWidth = panelWidth - pad * 2;
+
+
+
+    // Use 2 columns only for landscape and only when QR is not enabled
+
+    const columns =
+
+      !qrImg &&
+
+      isLandscape &&
+
+      innerWidth >= Math.round(720 * s)
+
+        ? 2
+
+        : 1;
+
+
+
+    const columnWidth =
+
+      columns === 2
+
+        ? Math.floor((innerWidth - colGap) / 2)
+
+        : innerWidth;
+
+
+
+    const qrReserveWidth = qrImg
+
+      ? qrSize + Math.round(16 * s)
+
+      : 0;
+
+
+
+    let valueWidth =
+
+      columnWidth -
+
+      labelColumnWidth -
+
+      (columns === 1 ? qrReserveWidth : 0);
+
+
+
+    valueWidth = Math.max(
+
+      Math.round(120 * s),
+
+      valueWidth
+
+    );
+
+
+
+    const valueMaxLines = columns === 2 ? 2 : 3;
+
+
+
+    // Pre-calculate header lines
+
+    ctx.font = fontHeader;
+
+
+
+    const headerAvailableWidth = Math.max(
+
+      Math.round(120 * s),
+
+      innerWidth -
+
+        (logoImg ? logoSize + Math.round(12 * s) : 0)
+
+    );
+
+
+
+    const headerLines = wrapText(
+
+      ctx,
+
+      schoolName,
+
+      headerAvailableWidth,
+
+      2
+
+    );
+
+
+
+    ctx.font = fontSubHeader;
+
+
+
+    const subHeaderLines = wrapText(
+
+      ctx,
+
+      eventName,
+
+      innerWidth,
+
+      2
+
+    );
+
+
+
+    // Process item lines
+
+    ctx.font = fontValue;
+
+
+
+    const processed = items.map((item) => {
+
+      const valueLines = wrapText(
+
+        ctx,
+
+        item.value,
+
+        valueWidth,
+
+        valueMaxLines
+
+      );
+
+
+
+      const lineCount = Math.max(1, valueLines.length);
+
+
+
+      return {
+
+        label: item.label,
+
+        valueLines,
+
+        blockHeight: lineCount * itemLineH + itemGap,
+
+      };
+
+    });
+
+
+
+    const headerHeight =
+
+      headerLines.length * headerLineH;
+
+
+
+    const subHeaderHeight =
+
+      subHeaderLines.length > 0
+
+        ? subHeaderLines.length * subHeaderLineH +
+
+          Math.round(4 * s)
+
+        : 0;
+
+
+
+    const dividerSpace = Math.round(9 * s);
+
+
+
+    let columnsData: {
+
+      items: typeof processed;
+
+      height: number;
+
+    }[];
+
+
+
+    const totalItemHeight = processed.reduce(
+
+      (sum, item) => sum + item.blockHeight,
+
+      0
+
+    );
+
+
+
+    if (columns === 1) {
+
+      columnsData = [
+
+        {
+
+          items: processed,
+
+          height: totalItemHeight,
+
+        },
+
+      ];
+
+    } else {
+
+      // Split sequentially into two columns to preserve reading order
+
+      let acc = 0;
+
+      let splitIndex = processed.length;
+
+
+
+      for (let i = 0; i < processed.length; i++) {
+
+        acc += processed[i].blockHeight;
+
+
+
+        if (acc >= totalItemHeight / 2) {
+
+          splitIndex = i + 1;
+
+          break;
+
+        }
+
+      }
+
+
+
+      const left = processed.slice(0, splitIndex);
+
+      const right = processed.slice(splitIndex);
+
+
+
+      const leftHeight = left.reduce(
+
+        (sum, item) => sum + item.blockHeight,
+
+        0
+
+      );
+
+
+
+      const rightHeight = right.reduce(
+
+        (sum, item) => sum + item.blockHeight,
+
+        0
+
+      );
+
+
+
+      columnsData = [
+
+        { items: left, height: leftHeight },
+
+        { items: right, height: rightHeight },
+
+      ];
+
+    }
+
+
+
+    const maxColumnHeight = columnsData.reduce(
+
+      (max, col) => Math.max(max, col.height),
+
+      0
+
+    );
+
+
+
+    const qrReserveHeight = qrImg
+
+      ? qrSize + Math.round(12 * s)
+
+      : 0;
+
+
+
+    const contentHeight =
+
+      headerHeight +
+
+      subHeaderHeight +
+
+      dividerSpace +
+
+      maxColumnHeight +
+
+      qrReserveHeight;
+
+
+
+    const naturalPanelHeight = pad * 2 + contentHeight;
+
+
+
+    const maximumAllowedHeight = Math.min(
+
+      canvas.height - pad * 2,
+
+      Math.round(canvas.height * maxPanelHeightRatio)
+
+    );
+
+
+
+    const panelHeight = Math.min(
+
+      naturalPanelHeight,
+
+      canvas.height - pad * 2
+
+    );
+
+
+
+    const panelY = Math.max(
+
+      pad,
+
+      canvas.height - panelHeight - pad
+
+    );
+
+
+
+    const fits =
+
+      naturalPanelHeight <= maximumAllowedHeight;
+
+
+
+    return {
+
+      scale: s,
+
+      pad,
+
+      cornerRadius,
+
+      panelX,
+
+      panelY,
+
+      panelWidth,
+
+      panelHeight,
+
+      columns,
+
+      columnWidth,
+
+      colGap,
+
+      maxLabelWidth,
+
+      colonOffset,
+
+      valueGap,
+
+      labelColumnWidth,
+
+      valueWidth,
+
+      headerLines,
+
+      subHeaderLines,
+
+      columnsData,
+
+      logoSize,
+
+      qrSize,
+
+      fontHeader,
+
+      fontSubHeader,
+
+      fontLabel,
+
+      fontValue,
+
+      headerLineH,
+
+      subHeaderLineH,
+
+      itemLineH,
+
+      itemGap,
+
+      fits,
+
+    };
+
   };
 
-  const leftMeasured = measureColumn(
-    gpsItems,
-    columnWidth - Math.round(34 * s) - labelWidthLeft - Math.round(8 * s)
-  );
-  // Keep the metadata column readable. The QR tile is placed in the free
-  // far-right panel area, so it should not reduce Date/Time/Photo ID text width.
-  const rightMeasured = measureColumn(
-    dateItems,
-    columnWidth - Math.round(34 * s) - labelWidthRight - Math.round(8 * s)
-  );
-  const itemHeight = (item: { lines: string[] }) => Math.max(1, item.lines.length) * lineHeight + rowGap;
-  const leftContentHeight = leftMeasured.reduce((sum, item) => sum + itemHeight(item), 0);
-  const rightContentHeight = rightMeasured.reduce((sum, item) => sum + itemHeight(item), 0);
-  const headerTop = pad + Math.round(3 * s);
-  const headerHeight = Math.max(headerIconSize, headerLine + subtitleLine + Math.round(6 * s));
-  const dividerYRelative = headerTop + headerHeight + Math.round(20 * s);
-  const contentTopRelative = dividerYRelative + Math.round(27 * s);
-  const locationTopRelative = contentTopRelative;
-  const columnsTopRelative = contentTopRelative + locationRowHeight;
-  const columnsHeight = Math.max(leftContentHeight, rightContentHeight);
-  // QR is placed beside the Date/Time/Photo ID stack, with its bottom aligned
-  // to the Photo ID row. No separate QR footer is needed, so the panel stays compact.
-  // Account for the QR tile in the measured panel height. Previously the
-  // QR could extend beyond the panel's clipped content area on compact layouts.
-  const contentHeight = Math.max(columnsHeight, qrFrameSize);
-  const panelHeight = Math.min(
-    canvas.height - margin * 2,
-    columnsTopRelative + contentHeight + pad
-  );
-  const panelY = canvas.height - panelHeight - margin;
-  const locationTop = panelY + locationTopRelative;
-  const columnsTop = panelY + columnsTopRelative;
+
+
+  let layout = createLayout(scale);
+
+
+
+  // Auto-shrink stamp until it fits nicely
+
+  let guard = 0;
+
+
+
+  while (
+
+    !layout.fits &&
+
+    scale > 0.62 &&
+
+    guard < 16
+
+  ) {
+
+    scale = Math.max(0.62, scale * 0.9);
+
+    layout = createLayout(scale);
+
+    guard += 1;
+
+  }
+
+
+
+  const s = layout.scale;
+
+
+
+  // ========================================================
+
+  // RENDER OFFICIAL DOCUMENT PANEL
+
+  // ========================================================
+
+
 
   ctx.save();
-  drawRoundedRect(ctx, panelX, panelY, panelWidth, panelHeight, radius);
-  const glassGradient = ctx.createLinearGradient(panelX, panelY, panelX + panelWidth, panelY + panelHeight);
-  glassGradient.addColorStop(0, `rgba(9, 17, 27, ${panelAlpha})`);
-  glassGradient.addColorStop(0.52, `rgba(11, 20, 31, ${Math.max(0.72, panelAlpha - 0.06)})`);
-  glassGradient.addColorStop(1, `rgba(5, 11, 19, ${panelAlpha})`);
-  ctx.fillStyle = glassGradient;
+
+
+
+  drawRoundedRect(
+
+    ctx,
+
+    layout.panelX,
+
+    layout.panelY,
+
+    layout.panelWidth,
+
+    layout.panelHeight,
+
+    layout.cornerRadius
+
+  );
+
+
+
+  ctx.fillStyle = `rgba(12, 16, 24, ${panelOpacity})`;
+
   ctx.fill();
+
+
+
+  // Clip content inside rounded panel
+
   ctx.clip();
 
-  // Cyan edge and signature vertical accent.
-  ctx.fillStyle = '#22E6F8';
-  ctx.fillRect(panelX, panelY + Math.round(24 * s), Math.max(4, Math.round(5 * s)), Math.min(Math.round(88 * s), panelHeight - Math.round(48 * s)));
+  // Slim blue accent for the selected modern inspection-card appearance.
+  ctx.fillStyle = 'rgba(59, 130, 246, 0.95)';
+  ctx.fillRect(layout.panelX, layout.panelY, Math.max(3, Math.round(3 * s)), layout.panelHeight);
 
-  // Circular university emblem with a simple graduation-cap line drawing.
-  const iconCx = panelX + pad + headerIconSize / 2;
-  const iconCy = panelY + headerTop + headerIconSize / 2;
-  ctx.beginPath();
-  ctx.arc(iconCx, iconCy, headerIconSize / 2, 0, Math.PI * 2);
-  ctx.fillStyle = 'rgba(0, 210, 235, 0.16)';
-  ctx.fill();
-  ctx.strokeStyle = '#22E6F8';
-  ctx.lineWidth = Math.max(2, 2.2 * s);
-  ctx.beginPath();
-  ctx.moveTo(iconCx - 22 * s, iconCy - 4 * s);
-  ctx.lineTo(iconCx, iconCy - 13 * s);
-  ctx.lineTo(iconCx + 22 * s, iconCy - 4 * s);
-  ctx.lineTo(iconCx, iconCy + 5 * s);
-  ctx.closePath();
-  ctx.stroke();
-  ctx.beginPath();
-  ctx.moveTo(iconCx - 14 * s, iconCy + 2 * s);
-  ctx.lineTo(iconCx - 14 * s, iconCy + 13 * s);
-  ctx.quadraticCurveTo(iconCx, iconCy + 24 * s, iconCx + 14 * s, iconCy + 13 * s);
-  ctx.lineTo(iconCx + 14 * s, iconCy + 2 * s);
-  ctx.stroke();
-  ctx.beginPath();
-  ctx.moveTo(iconCx + 22 * s, iconCy - 4 * s);
-  ctx.lineTo(iconCx + 22 * s, iconCy + 12 * s);
-  ctx.stroke();
+  let curY =
 
-  // Header and event subtitle.
-  ctx.textBaseline = 'top';
-  ctx.fillStyle = '#F8FAFC';
-  ctx.font = headerFont;
-  ctx.fillText(truncateToWidth(ctx, schoolName, panelWidth - (headerTextX - panelX) - pad), headerTextX, panelY + headerTop + Math.round(4 * s));
-  ctx.fillStyle = '#A8B8CA';
-  ctx.font = subtitleFont;
-  const subtitle = [eventName, organizer].filter(Boolean).join(' · ');
-  if (subtitle) ctx.fillText(truncateToWidth(ctx, subtitle, panelWidth - (headerTextX - panelX) - pad), headerTextX, panelY + headerTop + headerLine + Math.round(3 * s));
+    layout.panelY +
 
-  // Header divider.
-  ctx.fillStyle = 'rgba(148, 163, 184, 0.24)';
-  ctx.fillRect(panelX + pad, panelY + dividerYRelative, panelWidth - pad * 2, Math.max(1, Math.round(1.2 * s)));
+    layout.pad +
 
-  // Vertical divider starts below the full-width Location row.
-  const verticalDividerX = rightX - Math.round(columnGap / 2);
-  ctx.fillStyle = 'rgba(148, 163, 184, 0.28)';
-  ctx.fillRect(verticalDividerX, columnsTop, Math.max(1, Math.round(s)), Math.max(leftContentHeight, rightContentHeight));
+    Math.round(14 * s);
 
-  const drawFieldIcon = (x: number, y: number, label: string) => {
-    const cx = x + Math.round(13 * s);
-    const cy = y + Math.round(8 * s);
-    ctx.save();
-    ctx.strokeStyle = '#22E6F8';
-    ctx.fillStyle = '#22E6F8';
-    ctx.lineWidth = Math.max(1.7, 2 * s);
-    if (label === 'Location') {
-      ctx.beginPath(); ctx.arc(cx, cy - 2 * s, 6 * s, 0, Math.PI * 2); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(cx - 4 * s, cy + 2 * s); ctx.lineTo(cx, cy + 10 * s); ctx.lineTo(cx + 4 * s, cy + 2 * s); ctx.stroke();
-    } else if (label === 'GPS') {
-      ctx.beginPath(); ctx.arc(cx, cy, 7 * s, 0, Math.PI * 2); ctx.stroke();
-      ctx.beginPath(); ctx.arc(cx, cy, 2 * s, 0, Math.PI * 2); ctx.fill();
-      ctx.beginPath(); ctx.moveTo(cx - 11 * s, cy); ctx.lineTo(cx - 8 * s, cy); ctx.moveTo(cx + 8 * s, cy); ctx.lineTo(cx + 11 * s, cy); ctx.stroke();
-    } else if (label === 'Accuracy') {
-      ctx.beginPath(); ctx.arc(cx, cy, 7 * s, Math.PI * 1.1, Math.PI * 1.9); ctx.stroke();
-      ctx.beginPath(); ctx.arc(cx, cy, 10 * s, Math.PI * 1.1, Math.PI * 1.9); ctx.stroke();
-      ctx.beginPath(); ctx.arc(cx, cy, 7 * s, Math.PI * 0.1, Math.PI * 0.9); ctx.stroke();
-      ctx.beginPath(); ctx.arc(cx, cy, 10 * s, Math.PI * 0.1, Math.PI * 0.9); ctx.stroke();
-    } else if (label === 'Altitude') {
-      ctx.beginPath(); ctx.moveTo(cx - 10 * s, cy + 7 * s); ctx.lineTo(cx, cy - 8 * s); ctx.lineTo(cx + 10 * s, cy + 7 * s); ctx.closePath(); ctx.stroke();
-    } else if (label === 'Date') {
-      ctx.strokeRect(cx - 8 * s, cy - 7 * s, 16 * s, 15 * s);
-      ctx.beginPath(); ctx.moveTo(cx - 8 * s, cy - 2 * s); ctx.lineTo(cx + 8 * s, cy - 2 * s); ctx.moveTo(cx - 4 * s, cy - 10 * s); ctx.lineTo(cx - 4 * s, cy - 4 * s); ctx.moveTo(cx + 4 * s, cy - 10 * s); ctx.lineTo(cx + 4 * s, cy - 4 * s); ctx.stroke();
-    } else if (label === 'Time') {
-      ctx.beginPath(); ctx.arc(cx, cy, 9 * s, 0, Math.PI * 2); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx, cy - 5 * s); ctx.moveTo(cx, cy); ctx.lineTo(cx + 5 * s, cy + 3 * s); ctx.stroke();
-    } else {
-      ctx.strokeRect(cx - 8 * s, cy - 9 * s, 16 * s, 18 * s);
-      ctx.beginPath(); ctx.moveTo(cx - 4 * s, cy + 3 * s); ctx.lineTo(cx, cy - 2 * s); ctx.lineTo(cx + 4 * s, cy + 3 * s); ctx.stroke();
-    }
-    ctx.restore();
-  };
 
-  // Full-width Location row. The complete address wraps naturally and is never ellipsized.
-  if (addressLine) {
-    drawFieldIcon(leftX, locationTop, 'Location');
-    const locationTextX = leftX + Math.round(34 * s);
-    ctx.textBaseline = 'top';
-    ctx.font = labelFont;
-    ctx.fillStyle = '#A8B8CA';
-    ctx.fillText('Location', locationTextX, locationTop);
-    ctx.font = valueFont;
-    ctx.fillStyle = '#F8FAFC';
-    const locationValueX = locationTextX + locationLabelWidth;
-    locationLines.forEach((line, lineIndex) => {
-      ctx.fillText(line, locationValueX, locationTop + lineIndex * lineHeight);
-    });
+
+  const curX = layout.panelX + layout.pad;
+
+
+
+  // Draw Logo if available
+
+  if (logoImg && layout.logoSize > 0) {
+
+    ctx.drawImage(
+
+      logoImg,
+
+      layout.panelX +
+
+        layout.panelWidth -
+
+        layout.pad -
+
+        layout.logoSize,
+
+      layout.panelY + layout.pad,
+
+      layout.logoSize,
+
+      layout.logoSize
+
+    );
+
   }
 
 
-  const drawColumn = (itemsToDraw: Array<KeyVal & { lines: string[] }>, x: number, labelWidth: number) => {
-    let y = columnsTop;
-    itemsToDraw.forEach((item) => {
-      drawFieldIcon(x, y, item.label);
-      const textX = x + Math.round(34 * s);
-      ctx.textBaseline = 'top';
-      ctx.font = labelFont;
-      ctx.fillStyle = '#A8B8CA';
-      ctx.fillText(item.label, textX, y);
-      ctx.font = valueFont;
-      ctx.fillStyle = '#F8FAFC';
-      const valueX = textX + labelWidth;
-      item.lines.forEach((line, lineIndex) => {
-        ctx.fillText(line, valueX, y + lineIndex * lineHeight);
+
+  // Draw Heading
+
+  ctx.fillStyle = '#FFFFFF';
+
+  ctx.font = layout.fontHeader;
+
+
+
+  layout.headerLines.forEach((line) => {
+
+    ctx.fillText(line, curX, curY);
+
+    curY += layout.headerLineH;
+
+  });
+
+
+
+  // Draw Subheading
+
+  if (layout.subHeaderLines.length > 0) {
+
+    ctx.fillStyle = '#E2E8F0';
+
+    ctx.font = layout.fontSubHeader;
+
+
+
+    layout.subHeaderLines.forEach((line) => {
+
+      ctx.fillText(line, curX, curY);
+
+      curY += layout.subHeaderLineH;
+
+    });
+
+
+
+    curY += Math.round(4 * s);
+
+  }
+
+
+
+  // Horizontal Divider Line
+
+  curY += Math.round(4 * s);
+
+
+
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
+
+
+
+  ctx.fillRect(
+
+    curX,
+
+    curY,
+
+    layout.panelWidth - layout.pad * 2,
+
+    Math.max(1, Math.round(1 * s))
+
+  );
+
+
+
+  curY += Math.round(6 * s);
+
+
+
+  const contentStartY = curY;
+
+
+
+  // Draw Key-Value Columns
+
+  layout.columnsData.forEach((column, columnIndex) => {
+
+    const x =
+
+      layout.panelX +
+
+      layout.pad +
+
+      columnIndex *
+
+        (layout.columnWidth + layout.colGap);
+
+
+
+    let y = contentStartY;
+
+
+
+    column.items.forEach((item) => {
+
+      // Label
+
+      ctx.fillStyle = '#CBD5E1';
+
+      ctx.font = layout.fontLabel;
+
+
+
+      ctx.fillText(item.label, x, y);
+
+
+
+      // Colon
+
+      const colonX =
+
+        x + layout.maxLabelWidth + layout.colonOffset;
+
+
+
+      ctx.fillText(':', colonX, y);
+
+
+
+      // Value
+
+      const valueX = x + layout.labelColumnWidth;
+
+
+
+      ctx.fillStyle = '#FFFFFF';
+
+      ctx.font = layout.fontValue;
+
+
+
+      item.valueLines.forEach((line, lineIndex) => {
+
+        ctx.fillText(
+
+          line,
+
+          valueX,
+
+          y + lineIndex * layout.itemLineH
+
+        );
+
       });
-      y += itemHeight(item);
+
+
+
+      y += item.blockHeight;
+
     });
-  };
 
-  drawColumn(leftMeasured, leftX, labelWidthLeft);
-  drawColumn(rightMeasured, rightX, labelWidthRight);
+  });
 
-  // QR tile sits immediately to the right of the Photo ID row. Its vertical
-  // center aligns with that row; the panel height above accounts for the tile.
-  if (qrImg && qrSize > 0) {
-    const frameSize = qrFrameSize;
-    const qrX = panelX + panelWidth - pad - frameSize;
-    const photoIdIndex = rightMeasured.findIndex((item) => item.label === 'Photo ID');
-    let photoIdY = columnsTop;
-    for (let i = 0; i < photoIdIndex; i++) {
-      photoIdY += itemHeight(rightMeasured[i]);
-    }
-    // Center the QR tile on the Photo ID row. Calculate against the actual
-    // Photo ID row (not the panel bottom), then clamp only to the panel's
-    // inner bounds so the QR cannot be pushed into a separate footer position.
-    const photoIdRowCenter = photoIdY + lineHeight / 2;
-    const qrMinY = panelY + dividerYRelative + Math.round(8 * s);
-    const qrMaxY = panelY + panelHeight - pad - frameSize;
-    const desiredQrY = photoIdRowCenter - frameSize / 2;
-    const qrY = qrMaxY >= qrMinY
-      ? clamp(desiredQrY, qrMinY, qrMaxY)
-      : Math.max(qrMinY, desiredQrY);
-    drawRoundedRect(ctx, qrX, qrY, frameSize, frameSize, Math.round(10 * s));
-    ctx.fillStyle = 'rgba(4, 10, 18, 0.96)';
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(34, 230, 248, 0.95)';
-    ctx.lineWidth = Math.max(1.5, 1.4 * s);
-    ctx.stroke();
-    ctx.fillStyle = '#FFFFFF';
-    ctx.fillRect(qrX + qrFramePad, qrY + qrFramePad, qrSize, qrSize);
-    ctx.drawImage(qrImg, qrX + qrFramePad, qrY + qrFramePad, qrSize, qrSize);
+
+
+  // Draw QR Code on bottom right if enabled
+
+  if (qrImg && layout.qrSize > 0) {
+
+    ctx.drawImage(
+
+      qrImg,
+
+      layout.panelX +
+
+        layout.panelWidth -
+
+        layout.pad -
+
+        layout.qrSize,
+
+      layout.panelY +
+
+        layout.panelHeight -
+
+        layout.pad -
+
+        layout.qrSize,
+
+      layout.qrSize,
+
+      layout.qrSize
+
+    );
+
   }
+
+
+
   ctx.restore();
 
-  // Crisp cyan outline around the glass panel.
+
+
+  // Subtle 1px monochrome border
+
   ctx.save();
-  drawRoundedRect(ctx, panelX, panelY, panelWidth, panelHeight, radius);
-  ctx.strokeStyle = 'rgba(34, 230, 248, 0.98)';
-  ctx.lineWidth = Math.max(1.5, 1.4 * s);
+
+
+
+  drawRoundedRect(
+
+    ctx,
+
+    layout.panelX,
+
+    layout.panelY,
+
+    layout.panelWidth,
+
+    layout.panelHeight,
+
+    layout.cornerRadius
+
+  );
+
+
+
+  ctx.strokeStyle = 'rgba(59, 130, 246, 0.88)';
+
+  ctx.lineWidth = Math.max(1, Math.round(1.35 * s));
+
   ctx.stroke();
+
+
+
   ctx.restore();
+
+
 
   // Output blob & dataUrl
 
@@ -937,11 +1895,15 @@ export async function generateStampedImage(
 
   };
 
+
+
   const fallbackQuality = settings?.exportQuality
 
     ? exportQualityMap[settings.exportQuality] ?? 0.92
 
     : 0.92;
+
+
 
   const quality = clamp(
 
@@ -953,7 +1915,11 @@ export async function generateStampedImage(
 
   );
 
+
+
   const dataUrl = canvas.toDataURL('image/jpeg', quality);
+
+
 
   const blob = await new Promise<Blob>((resolve) => {
 
@@ -968,6 +1934,8 @@ export async function generateStampedImage(
     );
 
   });
+
+
 
   return { blob, dataUrl };
 
