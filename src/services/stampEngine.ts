@@ -50,9 +50,10 @@ async function generateQrDataUrl(text: string): Promise<string | null> {
     // Generate a high-resolution QR with a proper quiet zone and error correction.
     // The canvas may later scale it down, so generate at a larger source size.
     return await QRCode.toDataURL(text, {
-      errorCorrectionLevel: 'Q',
-      margin: 3,
-      width: 320,
+      // Medium correction keeps the URL QR less dense and easier for phone cameras to scan.
+      errorCorrectionLevel: 'M',
+      margin: 4,
+      width: 512,
       color: {
         dark: '#000000',
         light: '#FFFFFF',
@@ -605,7 +606,7 @@ export async function generateStampedImage(
 
     const latitude = location.latitude;
     const longitude = location.longitude;
-    const mapsUrl = `https://www.google.com/maps?q=${latitude},${longitude}`;
+    const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${latitude},${longitude}`)}`;
     const qrData = await generateQrDataUrl(mapsUrl);
 
     if (qrData) {
@@ -674,7 +675,7 @@ export async function generateStampedImage(
   const lineHeight = Math.round(22 * s);
   const headerLine = Math.round(34 * s);
   const subtitleLine = Math.round(25 * s);
-  const qrSize = qrImg ? Math.round(108 * s) : 0;
+  const qrSize = qrImg ? Math.round(96 * s) : 0;
   const qrFramePad = Math.round(7 * s);
   const qrFrameSize = qrImg ? qrSize + qrFramePad * 2 : 0;
 
@@ -722,10 +723,11 @@ export async function generateStampedImage(
     gpsItems,
     columnWidth - Math.round(34 * s) - labelWidthLeft - Math.round(8 * s)
   );
+  // Keep the metadata column readable. The QR tile is placed in the free
+  // far-right panel area, so it should not reduce Date/Time/Photo ID text width.
   const rightMeasured = measureColumn(
     dateItems,
-    columnWidth - Math.round(34 * s) - labelWidthRight - Math.round(8 * s) -
-      (qrImg ? qrFrameSize + Math.round(12 * s) : 0)
+    columnWidth - Math.round(34 * s) - labelWidthRight - Math.round(8 * s)
   );
   const itemHeight = (item: { lines: string[] }) => Math.max(1, item.lines.length) * lineHeight + rowGap;
   const leftContentHeight = leftMeasured.reduce((sum, item) => sum + itemHeight(item), 0);
@@ -893,14 +895,16 @@ export async function generateStampedImage(
     for (let i = 0; i < photoIdIndex; i++) {
       photoIdY += itemHeight(rightMeasured[i]);
     }
+    // Center the QR tile on the Photo ID row. Calculate against the actual
+    // Photo ID row (not the panel bottom), then clamp only to the panel's
+    // inner bounds so the QR cannot be pushed into a separate footer position.
     const photoIdRowCenter = photoIdY + lineHeight / 2;
-    const qrMinY = panelY + dividerYRelative + Math.round(4 * s);
+    const qrMinY = panelY + dividerYRelative + Math.round(8 * s);
     const qrMaxY = panelY + panelHeight - pad - frameSize;
-    const qrY = clamp(
-      photoIdRowCenter - frameSize / 2,
-      qrMinY,
-      Math.max(qrMinY, qrMaxY)
-    );
+    const desiredQrY = photoIdRowCenter - frameSize / 2;
+    const qrY = qrMaxY >= qrMinY
+      ? clamp(desiredQrY, qrMinY, qrMaxY)
+      : Math.max(qrMinY, desiredQrY);
     drawRoundedRect(ctx, qrX, qrY, frameSize, frameSize, Math.round(10 * s));
     ctx.fillStyle = 'rgba(4, 10, 18, 0.96)';
     ctx.fill();
