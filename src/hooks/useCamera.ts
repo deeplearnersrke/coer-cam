@@ -7,6 +7,8 @@ export interface CapturedFrameResult {
   orientation: 'portrait' | 'landscape';
 }
 
+type OrientationMode = 'portrait' | 'landscape';
+
 export function useCamera() {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -17,7 +19,6 @@ export function useCamera() {
   const [torchOn, setTorchOn] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Play a short, synthesized shutter sound. No external audio file is needed.
   const playShutterSound = useCallback(() => {
     try {
       const AudioContextClass =
@@ -33,16 +34,13 @@ export function useCamera() {
       osc.frequency.exponentialRampToValueAtTime(200, ctx.currentTime + 0.08);
       gain.gain.setValueAtTime(0.3, ctx.currentTime);
       gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.08);
-
       osc.connect(gain);
       gain.connect(ctx.destination);
       osc.start(ctx.currentTime);
       osc.stop(ctx.currentTime + 0.08);
-      osc.onended = () => {
-        void ctx.close().catch(() => undefined);
-      };
+      osc.onended = () => void ctx.close().catch(() => undefined);
     } catch {
-      // Shutter sound is optional; capture should still work if audio is unavailable.
+      // Sound is optional; capture must still work without it.
     }
   }, []);
 
@@ -51,11 +49,7 @@ export function useCamera() {
       streamRef.current.getTracks().forEach((track) => track.stop());
       streamRef.current = null;
     }
-
-    if (videoRef.current) {
-      videoRef.current.srcObject = null;
-    }
-
+    if (videoRef.current) videoRef.current.srcObject = null;
     setIsStreaming(false);
     setHasTorch(false);
     setTorchOn(false);
@@ -71,6 +65,8 @@ export function useCamera() {
           throw new Error('Camera access is not supported by this browser. Use HTTPS and a supported browser.');
         }
 
+        // These are preview-stream preferences only. Full-resolution still
+        // capture is attempted separately through ImageCapture.takePhoto().
         const constraints: MediaStreamConstraints = {
           audio: false,
           video: {
@@ -100,8 +96,12 @@ export function useCamera() {
 
         const track = stream.getVideoTracks()[0];
         if (track && 'getCapabilities' in track) {
-          const capabilities = (track as any).getCapabilities();
-          setHasTorch(Boolean(capabilities?.torch));
+          try {
+            const capabilities = (track as any).getCapabilities();
+            setHasTorch(Boolean(capabilities?.torch));
+          } catch {
+            setHasTorch(false);
+          }
         }
       } catch (err: any) {
         console.error('Camera stream error:', err);
@@ -133,14 +133,12 @@ export function useCamera() {
   }, [hasTorch, torchOn]);
 
   /**
-   * Captures a frame in the requested output orientation. If the camera's
-   * source dimensions have the opposite orientation, the source is rotated
-   * before cropping so the resulting image is upright rather than sideways.
-   *
-   * Output sizes: portrait 1080 x 1440; landscape 1920 x 1080.
+   * Legacy video-frame capture fallback.
+   * Uses the actual stream dimensions rather than forcing every capture into
+   * a fixed 1920x1080 / 1080x1440 canvas.
    */
   const captureFrame = useCallback(
-    (targetOrientation?: 'portrait' | 'landscape'): CapturedFrameResult | null => {
+    (targetOrientation?: OrientationMode): CapturedFrameResult | null => {
       const video = videoRef.current;
       if (!video || !isStreaming) return null;
 
@@ -152,131 +150,144 @@ export function useCamera() {
 
       playShutterSound();
 
-      // The caller's stable device-orientation decision takes precedence.
-      // Without one, infer orientation from the actual camera frame dimensions.
-      const orientation: 'portrait' | 'landscape' =
-        targetOrientation ?? (sourceWidth >= sourceHeight ? 'landscape' : 'portrait');
-      const targetWidth = orientation === 'landscape' ? 1920 : 1080;
-      const targetHeight = orientation === 'landscape' ? 1080 : 1440;
-
+      const sourceIsLandscape = sourceWidth >= sourceHeight;
+      const orientation: OrientationMode =
+        targetOrientation ?? (sourceIsLandscape ? 'landscape' : 'portrait');
+      const rotateSource = sourceIsLandscape !== (orientation === 'landscape');
+      const width = rotateSource ? sourceHeight : sourceWidth;
+      const height = rotateSource ? sourceWidth : sourceHeight;
       const canvas = document.createElement('canvas');
-      canvas.width = targetWidth;
-      canvas.height = targetHeight;
+      canvas.width = width;
+      canvas.height = height;
       const ctx = canvas.getContext('2d');
       if (!ctx) return null;
 
       ctx.imageSmoothingEnabled = true;
       ctx.imageSmoothingQuality = 'high';
-
-      // Rotate the source only when its dimensions conflict with the requested
-      // output orientation. This avoids drawing a portrait source into a
-      // landscape canvas (or vice versa) without first correcting its axes.
-      const sourceIsLandscape = sourceWidth >= sourceHeight;
-      const targetIsLandscape = orientation === 'landscape';
-      const rotateSource = sourceIsLandscape !== targetIsLandscape;
-
-      // After rotation, these are the dimensions used for aspect-ratio cropping.
-      const orientedWidth = rotateSource ? sourceHeight : sourceWidth;
-      const orientedHeight = rotateSource ? sourceWidth : sourceHeight;
-      const targetAspect = targetWidth / targetHeight;
-      const sourceAspect = orientedWidth / orientedHeight;
-
-      let sx = 0;
-      let sy = 0;
-      let sWidth = orientedWidth;
-      let sHeight = orientedHeight;
-
-      if (sourceAspect > targetAspect) {
-        sWidth = orientedHeight * targetAspect;
-        sx = (orientedWidth - sWidth) / 2;
-      } else if (sourceAspect < targetAspect) {
-        sHeight = orientedWidth / targetAspect;
-        sy = (orientedHeight - sHeight) / 2;
-      }
-
       ctx.save();
+
       if (rotateSource) {
-        // Rotate clockwise when changing landscape source to portrait output;
-        // rotate counter-clockwise for portrait source to landscape output.
         if (sourceIsLandscape) {
-          ctx.translate(targetWidth, 0);
+          ctx.translate(width, 0);
           ctx.rotate(Math.PI / 2);
         } else {
-          ctx.translate(0, targetHeight);
+          ctx.translate(0, height);
           ctx.rotate(-Math.PI / 2);
         }
       }
 
-      // Mirror only the front-facing camera, and do so after orientation setup.
-      // Use a separate transform so mirroring never changes the crop dimensions.
       if (facingMode === 'user') {
-        ctx.translate(targetWidth, 0);
+        ctx.translate(width, 0);
         ctx.scale(-1, 1);
       }
 
-      // Draw the camera frame. The transformed source is clipped to the output canvas.
-      // For matching source/output orientation this is a normal center crop.
-      if (!rotateSource) {
-        ctx.drawImage(
-          video,
-          sx,
-          sy,
-          sWidth,
-          sHeight,
-          0,
-          0,
-          targetWidth,
-          targetHeight
-        );
-      } else {
-        // A rotated source needs its own temporary canvas so crop coordinates
-        // are applied to the already-rotated pixels, not to the original axes.
-        ctx.restore();
-        const rotatedCanvas = document.createElement('canvas');
-        rotatedCanvas.width = orientedWidth;
-        rotatedCanvas.height = orientedHeight;
-        const rotatedCtx = rotatedCanvas.getContext('2d');
-        if (!rotatedCtx) return null;
-
-        if (sourceIsLandscape) {
-          rotatedCtx.translate(orientedWidth, 0);
-          rotatedCtx.rotate(Math.PI / 2);
-        } else {
-          rotatedCtx.translate(0, orientedHeight);
-          rotatedCtx.rotate(-Math.PI / 2);
-        }
-        rotatedCtx.drawImage(video, 0, 0, sourceWidth, sourceHeight);
-
-        ctx.save();
-        if (facingMode === 'user') {
-          ctx.translate(targetWidth, 0);
-          ctx.scale(-1, 1);
-        }
-        ctx.drawImage(
-          rotatedCanvas,
-          sx,
-          sy,
-          sWidth,
-          sHeight,
-          0,
-          0,
-          targetWidth,
-          targetHeight
-        );
-      }
+      ctx.drawImage(video, 0, 0, sourceWidth, sourceHeight);
       ctx.restore();
 
       return {
-        dataUrl: canvas.toDataURL('image/jpeg', 0.95),
-        width: targetWidth,
-        height: targetHeight,
-        orientation,
+        dataUrl: canvas.toDataURL('image/jpeg', 0.98),
+        width,
+        height,
+        orientation: width > height ? 'landscape' : 'portrait',
       };
     },
     [isStreaming, facingMode, playShutterSound]
   );
 
-  // Keep latest callbacks in refs so the mount effect can clean up correctly.
+  /**
+   * Preferred capture path: request a full-resolution still photo from the
+   * active camera when supported. If unsupported or rejected, use the video
+   * frame fallback above. Native dimensions are preserved; no fixed-size
+   * output canvas is imposed.
+   */
+  const capturePhoto = useCallback(
+    async (targetOrientation?: OrientationMode): Promise<CapturedFrameResult | null> => {
+      const track = streamRef.current?.getVideoTracks()[0];
+
+      if (track && typeof (window as any).ImageCapture === 'function') {
+        try {
+          const ImageCaptureClass = (window as any).ImageCapture;
+          const imageCapture = new ImageCaptureClass(track);
+          const photoBlob: Blob = await imageCapture.takePhoto();
+
+          if (!photoBlob || photoBlob.size === 0) {
+            throw new Error('Camera returned an empty still photo.');
+          }
+
+          // createImageBitmap applies the image's orientation metadata on
+          // browsers that support imageOrientation: from-image.
+          let bitmap: ImageBitmap;
+          try {
+            bitmap = await createImageBitmap(photoBlob, { imageOrientation: 'from-image' });
+          } catch {
+            bitmap = await createImageBitmap(photoBlob);
+          }
+
+          try {
+            const sourceWidth = bitmap.width;
+            const sourceHeight = bitmap.height;
+            if (!sourceWidth || !sourceHeight) {
+              throw new Error('The captured photo has invalid dimensions.');
+            }
+
+            const sourceIsLandscape = sourceWidth >= sourceHeight;
+            const desiredOrientation =
+              targetOrientation ?? (sourceIsLandscape ? 'landscape' : 'portrait');
+            const rotateSource = sourceIsLandscape !== (desiredOrientation === 'landscape');
+            const width = rotateSource ? sourceHeight : sourceWidth;
+            const height = rotateSource ? sourceWidth : sourceHeight;
+
+            const canvas = document.createElement('canvas');
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            if (!ctx) throw new Error('Could not create a canvas for the full-resolution photo.');
+
+            ctx.imageSmoothingEnabled = true;
+            ctx.imageSmoothingQuality = 'high';
+            ctx.save();
+
+            if (rotateSource) {
+              if (sourceIsLandscape) {
+                ctx.translate(width, 0);
+                ctx.rotate(Math.PI / 2);
+              } else {
+                ctx.translate(0, height);
+                ctx.rotate(-Math.PI / 2);
+              }
+            }
+
+            // Preserve the app's existing mirrored-preview behavior for selfies.
+            if (facingMode === 'user') {
+              ctx.translate(width, 0);
+              ctx.scale(-1, 1);
+            }
+
+            ctx.drawImage(bitmap, 0, 0, sourceWidth, sourceHeight);
+            ctx.restore();
+
+            playShutterSound();
+            return {
+              dataUrl: canvas.toDataURL('image/jpeg', 0.98),
+              width,
+              height,
+              orientation: width > height ? 'landscape' : 'portrait',
+            };
+          } finally {
+            bitmap.close();
+          }
+        } catch (err) {
+          // Some browsers expose ImageCapture but fail to take a still photo.
+          // Log and safely fall back to the live video frame.
+          console.warn('High-resolution still capture unavailable; using video-frame fallback.', err);
+        }
+      }
+
+      return captureFrame(targetOrientation);
+    },
+    [captureFrame, facingMode, playShutterSound]
+  );
+
   const startStreamRef = useRef(startStream);
   const stopStreamRef = useRef(stopStream);
 
@@ -287,9 +298,7 @@ export function useCamera() {
 
   useEffect(() => {
     void startStreamRef.current();
-    return () => {
-      stopStreamRef.current();
-    };
+    return () => stopStreamRef.current();
   }, []);
 
   return {
@@ -304,5 +313,6 @@ export function useCamera() {
     toggleCamera,
     toggleTorch,
     captureFrame,
+    capturePhoto,
   };
 }

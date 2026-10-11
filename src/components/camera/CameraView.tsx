@@ -32,7 +32,6 @@ import {
 
 import { useCamera } from '../../hooks/useCamera';
 
-
 import { useEventContext } from '../../contexts/EventContext';
 
 import { generateStampedImage } from '../../services/stampEngine';
@@ -226,7 +225,7 @@ export const CameraView: React.FC<CameraViewProps> = ({
 
     toggleTorch,
 
-    captureFrame,
+    capturePhoto,
 
   } = useCamera();
 
@@ -878,7 +877,7 @@ const stampStyle = useMemo<StampStyle>(
 
       // 1. Capture camera frame
 
-      const captured = captureFrame(requestedOrientation);
+      const captured = await capturePhoto(requestedOrientation);
 
       if (!captured || !captured.dataUrl) {
 
