@@ -540,31 +540,36 @@ export async function generateStampedImage(
     // Continue stamping if the public brand logo is missing.
   }
 
+  // All three logos use the same fixed-size display box and share one
+  // horizontal alignment line. Images are contained (never stretched) so
+  // logos with different source dimensions still look consistent.
   const drawTopLogo = (
     img: HTMLImageElement | null,
     position: 'left' | 'center' | 'right'
   ) => {
     if (!img?.naturalWidth || !img.naturalHeight) return;
 
-    const margin = Math.round(canvas.width * 0.025);
-    const maxWidth = canvas.width * 0.11;
-    const maxHeight = canvas.height * 0.11;
-    const logoScale = Math.min(
-      maxWidth / img.naturalWidth,
-      maxHeight / img.naturalHeight,
-      1
-    );
-    const width = img.naturalWidth * logoScale;
-    const height = img.naturalHeight * logoScale;
-    const x =
+    const marginX = Math.round(canvas.width * 0.025);
+    const marginY = Math.round(canvas.height * 0.025);
+    const logoBoxWidth = Math.round(canvas.width * 0.10);
+    const logoBoxHeight = Math.round(canvas.height * 0.10);
+    const boxX =
       position === 'left'
-        ? margin
+        ? marginX
         : position === 'center'
-          ? (canvas.width - width) / 2
-          : canvas.width - width - margin;
+          ? Math.round((canvas.width - logoBoxWidth) / 2)
+          : canvas.width - logoBoxWidth - marginX;
+    const scale = Math.min(
+      logoBoxWidth / img.naturalWidth,
+      logoBoxHeight / img.naturalHeight
+    );
+    const width = img.naturalWidth * scale;
+    const height = img.naturalHeight * scale;
+    const x = boxX + (logoBoxWidth - width) / 2;
+    const y = marginY + (logoBoxHeight - height) / 2;
 
     ctx.save();
-    ctx.drawImage(img, x, margin, width, height);
+    ctx.drawImage(img, x, y, width, height);
     ctx.restore();
   };
 
