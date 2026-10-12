@@ -727,19 +727,15 @@ export async function generateStampedImage(
 
     : 0.88;
 
-  const s = clamp(canvas.width / (isLandscape ? 1600 : 1080), 0.68, 1.15);
+  const s = clamp(canvas.width / (isLandscape ? 1600 : 1080), 0.85, 1.25);
 
-  const margin = Math.round(canvas.width * 0.022);
+  const margin = Math.round(canvas.width * 0.025);
 
-  // Keep the stamp broad in landscape too, so the address, metadata and QR
+  // Compact, horizontally centered panel in BOTH orientations.
 
-  // have enough room instead of compressing into a narrow card.
+  // Keep visible photo space around the panel, including portrait photos.
 
-  const panelWidth = isLandscape
-
-    ? Math.round(canvas.width * 0.76)
-
-    : canvas.width - margin * 2;
+  const panelWidth = Math.round(canvas.width * (isLandscape ? 0.80 : 0.92));
 
   const panelX = Math.round((canvas.width - panelWidth) / 2);
 
@@ -755,15 +751,15 @@ export async function generateStampedImage(
 
   const valueFont = `500 ${Math.round(15 * s)}px ${fontFamily}`;
 
-  const rowGap = Math.round(8 * s);
+  const rowGap = Math.round(7 * s);
 
   const lineHeight = Math.round(19 * s);
 
   const headerLine = Math.round(29 * s);
 
-  const subtitleLine = Math.round(21 * s);
+  const subtitleLine = Math.round(20 * s);
 
-  const qrSize = qrImg ? Math.round(76 * s) : 0;
+  const qrSize = qrImg ? Math.round(68 * s) : 0;
 
   const qrFramePad = Math.round(7 * s);
 
@@ -773,7 +769,7 @@ export async function generateStampedImage(
 
   const headerTextX = panelX + pad;
 
-  const columnGap = Math.round(28 * s);
+  const columnGap = Math.round(20 * s);
 
   const columnWidth = Math.floor((innerWidth - columnGap) / 2);
 
@@ -867,9 +863,9 @@ export async function generateStampedImage(
 
   const headerHeight = headerLine + subtitleLine + Math.round(6 * s);
 
-  const dividerYRelative = headerTop + headerHeight + Math.round(20 * s);
+  const dividerYRelative = headerTop + headerHeight + Math.round(12 * s);
 
-  const contentTopRelative = dividerYRelative + Math.round(27 * s);
+  const contentTopRelative = dividerYRelative + Math.round(17 * s);
 
   const locationTopRelative = contentTopRelative;
 
