@@ -13,7 +13,7 @@ export class GeoCameraDatabase extends Dexie {
     this.version(1).stores({
       events: 'id, name, schoolName, isDefault, createdAt',
       photos: 'id, eventId, timestamp, photoNumber',
-      settings: 'id'
+      settings: 'id',
     });
   }
 }
@@ -53,27 +53,51 @@ export const DEFAULT_EVENT: SchoolEvent = {
   isDefault: true,
 };
 
-export async function initializeDatabase() {
+/**
+ * Open IndexedDB explicitly.
+ * Errors are allowed to propagate so the UI can display a retry option.
+ */
+export async function openDatabase(): Promise<void> {
   try {
-    // Check settings
-    const existingSettings = await db.settings.get('default');
+    await db.open();
+  } catch (error) {
+    console.error('[D-Cam] IndexedDB open failed:', error);
+    throw error;
+  }
+}
 
-    if (!existingSettings) {
-      await db.settings.put(DEFAULT_SETTINGS);
-    }
+/**
+ * Initialize default settings and event if they do not exist.
+ * Existing events and photos are preserved.
+ */
+export async function initializeDatabase(): Promise<void> {
+  try {
+    await openDatabase();
 
-    // Check events
-    const eventCount = await db.events.count();
+    await db.transaction('rw', db.settings, db.events, async () => {
+      const existingSettings = await db.settings.get('default');
 
-    if (eventCount === 0) {
-      await db.events.put(DEFAULT_EVENT);
-    }
-  } catch (err) {
-    console.error('Failed to initialize database:', err);
+      if (!existingSettings) {
+        await db.settings.put(DEFAULT_SETTINGS);
+      }
+
+      const eventCount = await db.events.count();
+
+      if (eventCount === 0) {
+        await db.events.put(DEFAULT_EVENT);
+      }
+    });
+
+    console.info('[D-Cam] IndexedDB initialization completed');
+  } catch (error) {
+    console.error('[D-Cam] Database initialization failed:', error);
+    throw error;
   }
 }
 
 export async function getAppSettings(): Promise<AppSettings> {
+  await openDatabase();
+
   const settings = await db.settings.get('default');
   return settings || DEFAULT_SETTINGS;
 }
@@ -81,32 +105,45 @@ export async function getAppSettings(): Promise<AppSettings> {
 export async function updateAppSettings(
   settings: Partial<AppSettings>
 ): Promise<AppSettings> {
+  await openDatabase();
+
   const current = await getAppSettings();
 
-  const updated = {
+  const updated: AppSettings = {
     ...current,
     ...settings,
-    id: 'default'
+    id: 'default',
   };
 
   await db.settings.put(updated);
+
   return updated;
 }
 
 export async function getNextPhotoNumber(
   event: SchoolEvent
 ): Promise<{ photoNumber: string; updatedEvent: SchoolEvent }> {
-  const nextSeq = event.currentSeqNumber || 1;
-  const formattedSeq = String(nextSeq).padStart(3, '0');
-  const photoNumber = `${event.photoPrefix || 'EVT'}-${formattedSeq}`;
+  await openDatabase();
 
-  const updatedEvent: SchoolEvent = {
-    ...event,
-    currentSeqNumber: nextSeq + 1,
-    updatedAt: Date.now(),
-  };
+  return db.transaction('rw', db.events, async () => {
+    const latestEvent = await db.events.get(event.id);
 
-  await db.events.put(updatedEvent);
+    if (!latestEvent) {
+      throw new Error(`Event not found: ${event.id}`);
+    }
 
-  return { photoNumber, updatedEvent };
+    const nextSeq = latestEvent.currentSeqNumber || 1;
+    const formattedSeq = String(nextSeq).padStart(3, '0');
+    const photoNumber = `${latestEvent.photoPrefix || 'EVT'}-${formattedSeq}`;
+
+    const updatedEvent: SchoolEvent = {
+      ...latestEvent,
+      currentSeqNumber: nextSeq + 1,
+      updatedAt: Date.now(),
+    };
+
+    await db.events.put(updatedEvent);
+
+    return { photoNumber, updatedEvent };
+  });
 }

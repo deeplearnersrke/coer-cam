@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { EventProvider, useEventContext } from './contexts/EventContext';
 import { Navbar } from './components/layout/Navbar';
@@ -21,52 +21,52 @@ import { useGps } from './hooks/useGps';
 
 function MainAppContent() {
   const [activeTab, setActiveTab] = useState<string>('dashboard');
-  const [showSplash, setShowSplash] = useState<boolean>(true);
-  const [isOnline, setIsOnline] = useState<boolean>(
-    () => navigator.onLine
-  );
+  const [showSplash, setShowSplash] = useState(true);
+  const [isOnline, setIsOnline] = useState(() => navigator.onLine);
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
 
-  // Read GPS settings from the existing event/settings context.
-  const { settings } = useEventContext();
+  const {
+    settings,
+    isLoading,
+    initializationError,
+    loadEvents,
+  } = useEventContext();
 
-  // Keep one GPS watcher active while MainAppContent is mounted.
-  // Switching pages will no longer restart GPS tracking.
   const {
     location,
     isSearching: isGpsSearching,
   } = useGps(settings.gpsHighAccuracy);
 
-  // Modals state
   const [selectedPhoto, setSelectedPhoto] = useState<GeoPhoto | null>(null);
-  const [isCreateEventModalOpen, setIsCreateEventModalOpen] =
-    useState(false);
-
-  // Toasts
+  const [isCreateEventModalOpen, setIsCreateEventModalOpen] = useState(false);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
 
-  const showToast = (
+  const showToast = useCallback((
     message: string,
     type: 'success' | 'error' | 'info' = 'info'
   ) => {
     const id =
-      'toast_' +
-      Date.now() +
-      '_' +
-      Math.random().toString(36).slice(2, 7);
+      'toast_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
 
     setToasts((prev) => [...prev, { id, message, type }]);
 
     window.setTimeout(() => {
       setToasts((prev) => prev.filter((toast) => toast.id !== id));
     }, 3500);
-  };
+  }, []);
 
-  const handleDismissToast = (id: string) => {
+  const handleDismissToast = useCallback((id: string) => {
     setToasts((prev) => prev.filter((toast) => toast.id !== id));
-  };
+  }, []);
 
-  // Online / Offline listeners
+  // Close the splash after initialization finishes successfully.
+  useEffect(() => {
+    if (!isLoading && !initializationError) {
+      setShowSplash(false);
+    }
+  }, [isLoading, initializationError]);
+
+  // Online / offline listeners.
   useEffect(() => {
     const handleOnline = () => setIsOnline(true);
     const handleOffline = () => setIsOnline(false);
@@ -80,7 +80,7 @@ function MainAppContent() {
     };
   }, []);
 
-  // PWA install prompt listener
+  // PWA install prompt listener.
   useEffect(() => {
     const handleBeforeInstall = (event: Event) => {
       event.preventDefault();
@@ -90,10 +90,7 @@ function MainAppContent() {
     window.addEventListener('beforeinstallprompt', handleBeforeInstall);
 
     return () => {
-      window.removeEventListener(
-        'beforeinstallprompt',
-        handleBeforeInstall
-      );
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstall);
     };
   }, []);
 
@@ -126,6 +123,43 @@ function MainAppContent() {
       showToast('Unable to delete the photo.', 'error');
     }
   };
+
+  const handleRetryInitialization = async () => {
+    try {
+      await loadEvents();
+    } catch (error) {
+      console.error('Initialization retry failed:', error);
+    }
+  };
+
+  // Show a recoverable error instead of an endless loading screen.
+  if (initializationError) {
+    return (
+      <div className="min-h-screen bg-slate-950 text-white flex items-center justify-center p-6">
+        <div className="w-full max-w-md rounded-2xl border border-slate-800 bg-slate-900 p-6 text-center">
+          <h1 className="text-2xl font-bold">Unable to start D-Cam</h1>
+
+          <p className="mt-3 text-sm text-slate-300">
+            D-Cam could not initialize its local database. Your saved data has
+            not been intentionally deleted.
+          </p>
+
+          <p className="mt-3 break-words text-xs text-red-300">
+            {initializationError}
+          </p>
+
+          <button
+            type="button"
+            onClick={handleRetryInitialization}
+            disabled={isLoading}
+            className="mt-6 w-full rounded-xl bg-blue-600 px-4 py-3 font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {isLoading ? 'Retrying...' : 'Retry initialization'}
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-slate-900 text-slate-100 flex flex-col font-sans selection:bg-slate-700 selection:text-white">
@@ -160,30 +194,20 @@ function MainAppContent() {
             {activeTab === 'dashboard' && (
               <DashboardView
                 setActiveTab={setActiveTab}
-                onOpenPhotoDetail={(photo) =>
-                  setSelectedPhoto(photo)
-                }
-                onOpenCreateEventModal={() =>
-                  setIsCreateEventModalOpen(true)
-                }
+                onOpenPhotoDetail={setSelectedPhoto}
+                onOpenCreateEventModal={() => setIsCreateEventModalOpen(true)}
               />
             )}
 
             {activeTab === 'gallery' && (
               <GalleryView
-                onOpenPhotoDetail={(photo) =>
-                  setSelectedPhoto(photo)
-                }
+                onOpenPhotoDetail={setSelectedPhoto}
                 showToast={showToast}
               />
             )}
 
             {activeTab === 'map' && (
-              <MapView
-                onOpenPhotoDetail={(photo) =>
-                  setSelectedPhoto(photo)
-                }
-              />
+              <MapView onOpenPhotoDetail={setSelectedPhoto} />
             )}
 
             {activeTab === 'events' && (
@@ -210,7 +234,6 @@ function MainAppContent() {
         </>
       )}
 
-      {/* Photo Detail Inspection Modal */}
       {selectedPhoto && (
         <PhotoDetailModal
           photo={selectedPhoto}
@@ -220,7 +243,6 @@ function MainAppContent() {
         />
       )}
 
-      {/* Global Quick Create Event Modal */}
       <EventModal
         isOpen={isCreateEventModalOpen}
         onClose={() => setIsCreateEventModalOpen(false)}
