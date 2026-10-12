@@ -55,8 +55,11 @@ interface CameraViewProps {
   ) => void;
 
   isOnline?: boolean;
+
   /** Shared app-level GPS state; keeps camera from creating a second watcher. */
+
   location: GeoLocationData | null;
+
   isGpsSearching: boolean;
 
 }
@@ -200,11 +203,17 @@ const StampField: React.FC<{
 };
 
 export const CameraView: React.FC<CameraViewProps> = ({
+
   setActiveTab,
+
   showToast,
+
   isOnline = true,
+
   location,
+
   isGpsSearching,
+
 }) => {
 
   const {
@@ -304,6 +313,10 @@ const stampStyle = useMemo<StampStyle>(
   const isLandscape = orientation === 'landscape';
 
   const [isProcessing, setIsProcessing] = useState(false);
+
+  // Guard only camera-frame capture; background saving is handled separately.
+  const captureInProgressRef = useRef(false);
+  const saveQueueRef = useRef<Promise<void>>(Promise.resolve());
 
   const [shutterFlash, setShutterFlash] = useState(false);
 
@@ -850,254 +863,178 @@ const stampStyle = useMemo<StampStyle>(
   // =========================================================
 
   const handleCapture = async () => {
-
-    if (!isStreaming || isProcessing) {
-
+    // Only guard the actual camera-frame capture. Stamping and saving happen
+    // in the background queue so the next photo can be taken sooner.
+    if (!isStreaming || captureInProgressRef.current) {
       return;
-
     }
 
+    captureInProgressRef.current = true;
+    setIsProcessing(true);
+
+    // Keep the existing orientation decision and state updates unchanged.
     const requestedOrientation = autoRotate
-
       ? getRecentOrientation()
-
       : orientation;
 
     orientationRef.current = requestedOrientation;
-
     setOrientation(requestedOrientation);
 
-    setIsProcessing(true);
-
     setShutterFlash(true);
-
-    setTimeout(() => setShutterFlash(false), 180);
+    window.setTimeout(() => setShutterFlash(false), 180);
 
     try {
-
-      // 1. Capture camera frame
-
+      // 1. Capture the camera frame.
       const captured = await capturePhoto(requestedOrientation);
 
       if (!captured || !captured.dataUrl) {
-
         throw new Error(
-
           'Camera frame not ready. Ensure camera permission is granted.'
-
         );
-
       }
 
       const finalOrientation = normalizeOrientation(
-
         (captured as any).orientation ?? requestedOrientation
-
       );
 
-      // 2. Prepare GPS location
+      // Snapshot capture-time values so queued work uses the correct event,
+      // settings, location, orientation and camera facing mode.
+      const capturedAt = Date.now();
+      const capturedEvent = activeEvent;
+      const capturedSettings = settings;
+      const capturedStampStyle = stampStyle;
+      const capturedFacingMode = facingMode;
+      const capturedIsOnline = isOnline;
 
-      let currentLoc: GeoPhoto['location'] = loc
-
+      const capturedLocation: GeoPhoto['location'] = loc
         ? { ...loc }
-
         : {
-
             latitude: 0,
-
             longitude: 0,
-
             accuracy: 999,
-
-            timestamp: Date.now(),
-
+            timestamp: capturedAt,
           };
 
-      // 3. Reverse geocode
-
-      if (
-
-        !currentLoc.address &&
-
-        currentLoc.latitude !== 0 &&
-
-        currentLoc.longitude !== 0 &&
-
-        isOnline
-
-      ) {
-
-        try {
-
-          const fetchedAddr = await reverseGeocode(
-
-            currentLoc.latitude,
-
-            currentLoc.longitude
-
-          );
-
-          if (fetchedAddr) {
-
-            currentLoc.address = fetchedAddr;
-
-          }
-
-        } catch (e) {
-
-          // ignore network failure
-
-        }
-
-      }
-
-      // 4. Sequence photo number
-
-      let pNum = 'EVT-001';
-
-      if (activeEvent) {
-
-        const { photoNumber, updatedEvent } =
-
-          await getNextPhotoNumber(activeEvent);
-
-        pNum = photoNumber;
-
-        setActiveEvent(updatedEvent);
-
-      }
-
-      // 5. Run Canvas Stamp Engine
-
-      const stamped = await generateStampedImage({
-
-        imageSrc: captured.dataUrl,
-
-        event: activeEvent || undefined,
-
-        photoNumber: pNum,
-
-        location: currentLoc,
-
-        timestamp: Date.now(),
-
-        stampStyle,
-
-        settings,
-
-        orientation: finalOrientation,
-
-      });
-
-      // 6. Original image blob
-
-      const originalBlob = dataURLtoBlob(captured.dataUrl);
-
-      // 7. Create photo object
-
-      const newPhoto: GeoPhoto = {
-
-        id:
-
-          'photo_' +
-
-          Date.now() +
-
-          '_' +
-
-          Math.random().toString(36).slice(2, 6),
-
-        eventId: activeEvent?.id,
-
-        eventName: activeEvent?.name,
-
-        schoolName:
-
-          activeEvent?.schoolName || settings.schoolName,
-
-        department: activeEvent?.department,
-
-        organizer: activeEvent?.organizer,
-
-        locationName: activeEvent?.locationName,
-
-        remarks: activeEvent?.remarks || '',
-
-        orientation: finalOrientation,
-
-        originalBlob,
-
-        stampedBlob: stamped.blob,
-
-        stampedDataUrl: stamped.dataUrl,
-
-        originalDataUrl: captured.dataUrl,
-
-        photoNumber: pNum,
-
-        location: currentLoc,
-
-        timestamp: Date.now(),
-
-        stampStyle,
-
-        metadata: {
-
-          width: captured.width ?? 0,
-
-          height: captured.height ?? 0,
-
-          orientation: finalOrientation,
-
-          fileSize: stamped.blob.size,
-
-          cameraFacing: facingMode,
-
-        },
-
-      };
-
-      // 8. SAVE
-
-      await db.photos.put(newPhoto);
-
-      // 9. Gallery preview
-
-      setLastCapturedPhotoUrl(stamped.dataUrl);
-
-      // 10. Success toast
-
-      showToast(
-
-        `Record ${pNum} (${finalOrientation.toUpperCase()}) captured and saved`,
-
-        'success'
-
-      );
-
-    } catch (err: any) {
-
-      console.error('Capture error:', err);
-
-      showToast(
-
-        'Capture error: ' +
-
-          (err?.message || 'Unknown camera error'),
-
-        'error'
-
-      );
-
-    } finally {
-
+      // The frame is safely in memory. Enable the shutter again now instead
+      // of waiting for reverse geocoding, stamping, and IndexedDB to finish.
+      captureInProgressRef.current = false;
       setIsProcessing(false);
 
+      // 2. Process and save captured photos sequentially. This preserves the
+      // order of photo numbering and avoids concurrent database writes.
+      saveQueueRef.current = saveQueueRef.current.then(async () => {
+        try {
+          let currentLoc = { ...capturedLocation };
+
+          // Preserve the existing reverse-geocoding behavior.
+          if (
+            !currentLoc.address &&
+            currentLoc.latitude !== 0 &&
+            currentLoc.longitude !== 0 &&
+            capturedIsOnline
+          ) {
+            try {
+              const fetchedAddr = await reverseGeocode(
+                currentLoc.latitude,
+                currentLoc.longitude
+              );
+
+              if (fetchedAddr) {
+                currentLoc.address = fetchedAddr;
+              }
+            } catch (error) {
+              // A network/geocoding failure must not prevent photo saving.
+              console.warn('Reverse geocoding failed:', error);
+            }
+          }
+
+          // 3. Allocate a photo number in queue order.
+          let pNum = 'EVT-001';
+
+          if (capturedEvent) {
+            const { photoNumber, updatedEvent } =
+              await getNextPhotoNumber(capturedEvent);
+
+            pNum = photoNumber;
+            setActiveEvent(updatedEvent);
+          }
+
+          // 4. Preserve the existing stamp engine and captured orientation.
+          const stamped = await generateStampedImage({
+            imageSrc: captured.dataUrl,
+            event: capturedEvent || undefined,
+            photoNumber: pNum,
+            location: currentLoc,
+            timestamp: capturedAt,
+            stampStyle: capturedStampStyle,
+            settings: capturedSettings,
+            orientation: finalOrientation,
+          });
+
+          // 5. Preserve original/stamped blobs and data URLs.
+          const originalBlob = dataURLtoBlob(captured.dataUrl);
+
+          const newPhoto: GeoPhoto = {
+            id:
+              'photo_' +
+              capturedAt +
+              '_' +
+              Math.random().toString(36).slice(2, 6),
+            eventId: capturedEvent?.id,
+            eventName: capturedEvent?.name,
+            schoolName:
+              capturedEvent?.schoolName || capturedSettings.schoolName,
+            department: capturedEvent?.department,
+            organizer: capturedEvent?.organizer,
+            locationName: capturedEvent?.locationName,
+            remarks: capturedEvent?.remarks || '',
+            orientation: finalOrientation,
+            originalBlob,
+            stampedBlob: stamped.blob,
+            stampedDataUrl: stamped.dataUrl,
+            originalDataUrl: captured.dataUrl,
+            photoNumber: pNum,
+            location: currentLoc,
+            timestamp: capturedAt,
+            stampStyle: capturedStampStyle,
+            metadata: {
+              width: captured.width ?? 0,
+              height: captured.height ?? 0,
+              orientation: finalOrientation,
+              fileSize: stamped.blob.size,
+              cameraFacing: capturedFacingMode,
+            },
+          };
+
+          // 6. Confirm persistence before showing success.
+          await db.photos.put(newPhoto);
+          setLastCapturedPhotoUrl(stamped.dataUrl);
+
+          showToast(
+            `Record ${pNum} (${finalOrientation.toUpperCase()}) captured and saved`,
+            'success'
+          );
+        } catch (error: any) {
+          console.error('Photo processing/save error:', error);
+          showToast(
+            `Photo captured, but saving failed: ${
+              error?.message || 'Unknown error'
+            }`,
+            'error'
+          );
+        }
+      });
+    } catch (error: any) {
+      console.error('Capture error:', error);
+      showToast(
+        'Capture error: ' + (error?.message || 'Unknown camera error'),
+        'error'
+      );
+    } finally {
+      captureInProgressRef.current = false;
+      setIsProcessing(false);
     }
-
   };
-
-  // =========================================================
 
   // UI
 
