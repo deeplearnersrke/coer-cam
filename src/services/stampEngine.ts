@@ -735,7 +735,7 @@ export async function generateStampedImage(
 
   // Keep visible photo space around the panel, including portrait photos.
 
-  const panelWidth = Math.round(canvas.width * (isLandscape ? 0.70 : 0.60));
+  const panelWidth = Math.round(canvas.width * (isLandscape ? 0.40 : 0.50));
 
   const panelX = Math.round((canvas.width - panelWidth) / 2);
 
